@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/schema';
 import { isoDate, niceDate } from '../lib/dates';
-import { Page } from '../ui';
+import { Icon, Page } from '../ui';
 
 export default function History() {
   const [params] = useSearchParams();
@@ -49,7 +49,7 @@ export default function History() {
                   </div>
                 </div>
                 {w.status === 'skipped' && <span className="badge">Skipped</span>}
-                <span className="chev">›</span>
+                {Icon.chevRight}
               </Link>
             ))}
           </div>

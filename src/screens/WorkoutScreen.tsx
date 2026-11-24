@@ -2,46 +2,16 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Workout } from '../db/schema';
-import { formatSeconds, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
+import { hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
 import { isoDate, niceDate, relativeDay } from '../lib/dates';
-import { countdownPhases } from '../lib/timer';
 import { buildWorkoutContext } from '../lib/claude';
+import { BACK_OPTIONS, COLUMNS, RPE, fmtDuration, saveSet, type NumKey } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
-import { useTimer } from '../timerContext';
-import { Chips, Field, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
+import { Chips, Field, Icon, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
+import SessionFlow from './SessionFlow';
 
-type NumKey = 'weight' | 'reps' | 'seconds' | 'metres';
-
-interface Column {
-  key: NumKey;
-  unit: string;
-  label: string;
-}
-
-const COLUMNS: Record<Exercise['measure'], Column[]> = {
-  weight_reps: [
-    { key: 'weight', unit: 'kg', label: 'Weight' },
-    { key: 'reps', unit: 'reps', label: 'Reps' },
-  ],
-  reps: [{ key: 'reps', unit: 'reps', label: 'Reps' }],
-  rounds: [
-    { key: 'reps', unit: 'rds', label: 'Rounds' },
-    { key: 'weight', unit: 'kg', label: 'Weight' },
-  ],
-  time: [{ key: 'seconds', unit: 'sec', label: 'Time' }],
-  distance: [
-    { key: 'metres', unit: 'm', label: 'Distance' },
-    { key: 'weight', unit: 'kg', label: 'Weight' },
-  ],
-};
-
-const BACK_OPTIONS = ['Fine', 'Aware of it', 'Sore', 'Flare-up'] as const;
-const RPE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
-
-const entryId = (workoutId: string, itemId: string, setNo: number) => `${workoutId}:${itemId}:${setNo}`;
-const fmtDuration = (n: number) => (n >= 60 ? formatSeconds(n) : String(n));
-
+/** Every set of one exercise as an editable table: the record of a finished session. */
 function ExerciseCard({
   workout,
   item,
@@ -53,7 +23,6 @@ function ExerciseCard({
   exercise: Exercise;
   entries: SetEntry[];
 }) {
-  const timer = useTimer();
   const { toast } = useFeedback();
   const [extra, setExtra] = useState(0);
   const last = useLiveQuery(() => lastTime(db, exercise.id, { workoutId: workout.id }), [exercise.id, workout.id]);
@@ -72,27 +41,6 @@ function ExerciseCard({
     };
   };
 
-  const save = async (setNo: number, changes: Partial<Record<NumKey, number | undefined>>) => {
-    const id = entryId(workout.id, item.id, setNo);
-    // Merge against the stored row, not the rendered one: two fields committed in quick
-    // succession would otherwise each start from a stale copy and the second would drop the first.
-    await db.transaction('rw', db.sets, async () => {
-      const current = await db.sets.get(id);
-      const next: SetEntry = {
-        id,
-        workoutId: workout.id,
-        exerciseId: exercise.id,
-        itemId: item.id,
-        date: workout.date,
-        setNo,
-        ...current,
-        ...changes,
-      };
-      if (hasValue(next)) await db.sets.put(next);
-      else await db.sets.delete(id);
-    });
-  };
-
   const toggle = async (setNo: number) => {
     const current = entries.find((e) => e.setNo === setNo);
     if (current && hasValue(current)) {
@@ -106,23 +54,21 @@ function ExerciseCard({
       toast('Enter a value first.');
       return;
     }
-    await save(setNo, fill);
-    if (item.rest) timer.start(countdownPhases(item.rest), 'Rest');
+    await saveSet(workout, item, exercise, setNo, fill);
   };
 
   const summary = itemSummary(item);
 
   return (
     <div className="card ex-card">
-      <div>
-        <div className="spread">
+      <div className="spread">
+        <div>
           <h3>{exercise.name}</h3>
-          <Link to={`/exercise/${exercise.id}`} className="sub link">
-            Details
-          </Link>
+          {summary && <div className="ex-meta">{summary}</div>}
         </div>
-        {summary && <div className="ex-meta">{summary}</div>}
-        {item.note && <div className="ex-meta">{item.note}</div>}
+        <Link to={`/exercise/${exercise.id}`} className="icon-btn" aria-label={`${exercise.name} details`}>
+          {Icon.chevRight}
+        </Link>
       </div>
 
       {last && (
@@ -150,7 +96,7 @@ function ExerciseCard({
                   }
                   parse={c.key === 'seconds' ? parseDuration : undefined}
                   format={c.key === 'seconds' ? fmtDuration : undefined}
-                  onCommit={(v) => save(setNo, { [c.key]: v })}
+                  onCommit={(v) => saveSet(workout, item, exercise, setNo, { [c.key]: v })}
                 />
               ))}
               <button
@@ -159,31 +105,16 @@ function ExerciseCard({
                 aria-pressed={on}
                 onClick={() => toggle(setNo)}
               >
-                ✓
+                {Icon.check}
               </button>
             </div>
           );
         })}
       </div>
 
-      <div className="spread">
-        <button className="btn small ghost" onClick={() => setExtra((n) => n + 1)}>
-          + Set
-        </button>
-        {item.rest ? (
-          <button className="btn small ghost" onClick={() => timer.start(countdownPhases(item.rest!), 'Rest')}>
-            Rest {fmtDuration(item.rest)}
-          </button>
-        ) : null}
-      </div>
-
-      {(exercise.cues || exercise.adjustments) && (
-        <details>
-          <summary className="sub">Cues</summary>
-          {exercise.cues && <p className="sub" style={{ marginTop: 6 }}>{exercise.cues}</p>}
-          {exercise.adjustments && <p className="sub" style={{ marginTop: 6 }}>{exercise.adjustments}</p>}
-        </details>
-      )}
+      <button className="btn small ghost" style={{ justifySelf: 'start' }} onClick={() => setExtra((n) => n + 1)}>
+        Add a set
+      </button>
     </div>
   );
 }
@@ -215,26 +146,19 @@ export default function WorkoutScreen() {
     );
   }
   const { workout: w, space, sets = [], exercises = [] } = data;
+
+  // While a session is under way it is a guided flow; afterwards it is a record you can correct.
+  if (w.status === 'in_progress') return <SessionFlow workout={w} space={space} sets={sets} exercises={exercises} />;
+
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const patch = (changes: Partial<Workout>) => db.workouts.update(id, changes);
   const checked = new Set(w.checked ?? []);
-  const elapsedMin = Math.round((Date.now() - w.startedAt) / 60000);
-  const suggestMinutes = w.status === 'in_progress' && elapsedMin >= 1 && elapsedMin <= 240 ? elapsedMin : undefined;
 
   const setDate = async (date: string) => {
     await db.transaction('rw', db.workouts, db.sets, async () => {
       await db.workouts.update(id, { date });
       await db.sets.where('workoutId').equals(id).modify({ date });
     });
-  };
-
-  const finish = async (status: 'done' | 'skipped') => {
-    await patch({
-      status,
-      minutes: status === 'done' ? (w.minutes ?? suggestMinutes) : w.minutes,
-    });
-    // Land on Today, which now shows what is next; replace so Back does not reopen the finished session.
-    nav('/', { replace: true });
   };
 
   const remove = async () => {
@@ -254,25 +178,23 @@ export default function WorkoutScreen() {
     <div style={{ ['--space' as string]: space?.color }}>
       <Page
         title={w.title}
+        kicker={[space?.name, niceDate(w.date)].filter(Boolean).join(', ')}
         back
-        actions={
-          w.status !== 'in_progress' ? (
-            <span className={`badge ${w.status === 'done' ? 'ok' : ''}`}>{w.status === 'done' ? 'Done' : 'Skipped'}</span>
-          ) : undefined
-        }
+        actions={<span className={`badge ${w.status === 'done' ? 'ok' : ''}`}>{w.status === 'done' ? 'Done' : 'Skipped'}</span>}
       >
-        <div className="spread sub" style={{ marginTop: -8 }}>
-          <span>
-            {space?.name} · {niceDate(w.date)}
-          </span>
-          {w.items.length > 0 && (
-            <button
-              className="btn small ghost"
-              onClick={() => patch({ logStyle: w.logStyle === 'sets' ? 'session' : 'sets' })}
-            >
-              {w.logStyle === 'sets' ? 'Switch to tick-off' : 'Switch to set by set'}
-            </button>
-          )}
+        <div className="tiles on-bg">
+          <div className="tile">
+            <NumInput ariaLabel="Minutes" unit="min" value={w.minutes} onCommit={(v) => patch({ minutes: v })} />
+            <small>Time</small>
+          </div>
+          <div className="tile">
+            <b>{w.rpe != null ? `RPE ${w.rpe}` : 'Not set'}</b>
+            <small>Effort</small>
+          </div>
+          <div className="tile">
+            <b>{w.backResponse ?? 'Not set'}</b>
+            <small>Back</small>
+          </div>
         </div>
 
         {w.prescription && (
@@ -313,11 +235,11 @@ export default function WorkoutScreen() {
                       void patch({ checked: [...next] });
                     }}
                   >
-                    ✓
+                    {Icon.check}
                   </button>
-                  <Link to={`/exercise/${item.exerciseId}`} className="grow" style={{ flex: 1, minWidth: 0 }}>
-                    <div className="title" style={{ fontWeight: 560 }}>{exercise?.name ?? 'Unknown exercise'}</div>
-                    <div className="sub">{[itemSummary(item), item.note].filter(Boolean).join(' — ')}</div>
+                  <Link to={`/exercise/${item.exerciseId}`} className="grow">
+                    <div className="title">{exercise?.name ?? 'Unknown exercise'}</div>
+                    <div className="sub">{[itemSummary(item), item.note].filter(Boolean).join(', ')}</div>
                   </Link>
                 </div>
               );
@@ -325,27 +247,8 @@ export default function WorkoutScreen() {
           </div>
         ) : null}
 
-        <button className="btn" onClick={() => setPicking(true)}>
-          + Add exercise
-        </button>
-
         <SectionTitle>How it went</SectionTitle>
         <div className="card stack">
-          <div className="grid-2">
-            <Field label="Date">
-              <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
-            </Field>
-            <div className="field">
-              <span>Minutes</span>
-              <NumInput
-                ariaLabel="Minutes"
-                unit="min"
-                value={w.minutes}
-                placeholder={suggestMinutes != null ? String(suggestMinutes) : ''}
-                onCommit={(v) => patch({ minutes: v })}
-              />
-            </div>
-          </div>
           <div className="field">
             <span>Effort (RPE)</span>
             <Chips className="five" options={RPE} value={w.rpe as (typeof RPE)[number] | undefined} onChange={(v) => patch({ rpe: v })} />
@@ -353,6 +256,7 @@ export default function WorkoutScreen() {
           <div className="field">
             <span>Back response</span>
             <Chips
+              className="two"
               options={BACK_OPTIONS}
               value={w.backResponse as (typeof BACK_OPTIONS)[number] | undefined}
               onChange={(v) => patch({ backResponse: v })}
@@ -366,26 +270,18 @@ export default function WorkoutScreen() {
               onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
             />
           </Field>
+          <Field label="Date">
+            <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          </Field>
         </div>
 
-        {w.status === 'in_progress' ? (
-          <div className="stack">
-            <button className="btn primary block" onClick={() => finish('done')}>
-              Finish session
-            </button>
-            {w.programmeId && (
-              <button className="btn block" onClick={() => finish('skipped')}>
-                Skip this session
-              </button>
-            )}
-          </div>
-        ) : (
-          <button className="btn block" onClick={() => patch({ status: 'in_progress' })}>
-            Reopen session
-          </button>
-        )}
-
         <div className="grid-2">
+          <button className="btn" onClick={() => patch({ status: 'in_progress' })}>
+            Reopen
+          </button>
+          <button className="btn" onClick={() => setPicking(true)}>
+            Add exercise
+          </button>
           <button className="btn ghost" onClick={() => ask(() => buildWorkoutContext(db, w))}>
             Ask Claude
           </button>

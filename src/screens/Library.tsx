@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Note, type NoteKind } from '../db/schema';
 import { useAskClaude } from '../actions';
-import { Field, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+import { Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
 
 /** Turns bare http(s) addresses into links; everything else stays text. */
 function linkify(text: string): ReactNode[] {
@@ -92,6 +92,7 @@ function NoteForm({ note, kind, onClose }: { note?: Note; kind: NoteKind; onClos
 
 export function Library() {
   const notes = useLiveQuery(() => db.notes.orderBy('order').toArray(), []);
+  const exerciseCount = useLiveQuery(() => db.exercises.count(), []) ?? 0;
   const [adding, setAdding] = useState<NoteKind>();
   const ask = useAskClaude();
   if (!notes) return null;
@@ -99,12 +100,24 @@ export function Library() {
   const books = notes.filter((n) => n.kind === 'book');
   return (
     <Page title="Library" large>
-      <button
-        className="btn primary"
-        onClick={() => ask(() => 'My question: ')}
-      >
-        Open my Claude Project
-      </button>
+      <div className="card flush">
+        <Link to="/exercises" className="row">
+          {Icon.exercises}
+          <div className="grow">
+            <div className="title">Exercises</div>
+            <div className="sub">{exerciseCount} with cues, links and history</div>
+          </div>
+          {Icon.chevRight}
+        </Link>
+        <button className="row" onClick={() => ask(() => 'My question: ')}>
+          {Icon.library}
+          <div className="grow">
+            <div className="title">Ask Claude</div>
+            <div className="sub">Opens your Claude Project</div>
+          </div>
+          {Icon.chevRight}
+        </button>
+      </div>
 
       <SectionTitle action={<button onClick={() => setAdding('note')}>+ Add</button>}>My notes</SectionTitle>
       <div className="card flush">
@@ -113,7 +126,7 @@ export function Library() {
             <div className="grow">
               <div className="title">{n.title}</div>
             </div>
-            <span className="chev">›</span>
+            {Icon.chevRight}
           </Link>
         ))}
         {!mine.length && <div className="empty">Protocols, rules and reminders you want to hand.</div>}
@@ -127,7 +140,7 @@ export function Library() {
               <div className="title">{n.title}</div>
               {n.author && <div className="sub">{n.author}</div>}
             </div>
-            <span className="chev">›</span>
+            {Icon.chevRight}
           </Link>
         ))}
         {!books.length && <div className="empty">List the books in your Claude Project to ask about them from here.</div>}
@@ -176,7 +189,7 @@ export function NoteScreen() {
       back="/library"
       actions={
         <button className="icon-btn" aria-label="Edit" onClick={() => setEditing(true)}>
-          ✎
+          {Icon.pencil}
         </button>
       }
     >

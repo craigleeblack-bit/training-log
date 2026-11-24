@@ -29,6 +29,37 @@ export function addDays(iso: string, n: number): string {
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+const DAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_LONG = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/** "Tuesday 24 November". */
+export function longDate(iso: string): string {
+  const d = parseIso(iso);
+  return `${DAY_LONG[d.getDay()]} ${d.getDate()} ${MONTH_LONG[d.getMonth()]}`;
+}
+
+/** How to name a day that is still to come: "tomorrow", "Thursday", or "Tue 8 Dec" beyond a week. */
+export function upcomingDay(iso: string, today: string = isoDate()): string {
+  const diff = daysBetween(today, iso);
+  if (diff <= 0) return 'today';
+  if (diff === 1) return 'tomorrow';
+  if (diff < 7) return DAY_LONG[parseIso(iso).getDay()];
+  return niceDate(iso, today);
+}
+
 export function dayName(iso: string): string {
   return DAY[parseIso(iso).getDay()];
 }

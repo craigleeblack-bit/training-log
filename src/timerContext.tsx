@@ -20,6 +20,8 @@ interface TimerApi {
   pause: () => void;
   resume: () => void;
   stop: () => void;
+  /** Lengthen (or, with a negative number, shorten) the current phase by this many seconds. */
+  extend: (seconds: number) => void;
 }
 
 const Ctx = createContext<TimerApi | null>(null);
@@ -160,6 +162,21 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setState(undefined);
   }, []);
 
+  const extend = useCallback((seconds: number) => {
+    setState((s) => {
+      if (!s) return s;
+      const at = s.banked + (s.resumedAt ? (Date.now() - s.resumedAt) / 1000 : 0);
+      const pos = positionAt(s.phases, at);
+      if (pos.done || !pos.phase) return s;
+      // Never shorten past the present: leave a second so the phase ends through the normal path.
+      const used = pos.phase.seconds - pos.remaining;
+      const phases = s.phases.map((p, i) =>
+        i === pos.index ? { ...p, seconds: Math.max(Math.ceil(used) + 1, p.seconds + seconds) } : p,
+      );
+      return { ...s, phases };
+    });
+  }, []);
+
   const api = useMemo<TimerApi>(
     () => ({
       active: !!state,
@@ -171,10 +188,11 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       pause,
       resume,
       stop,
+      extend,
     }),
     // position is derived from the clock on every render, so depend on its numbers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, running, position?.index, position?.remaining, position?.done, start, pause, resume, stop],
+    [state, running, position?.index, position?.remaining, position?.done, start, pause, resume, stop, extend],
   );
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;

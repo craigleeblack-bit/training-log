@@ -14,12 +14,15 @@ import { useNavigate } from 'react-router-dom';
 
 export function Page({
   title,
+  kicker,
   back,
   large,
   actions,
   children,
 }: {
   title: string;
+  /** Small line above the title, such as today's date. */
+  kicker?: string;
   back?: boolean | string;
   large?: boolean;
   actions?: ReactNode;
@@ -35,10 +38,13 @@ export function Page({
             aria-label="Back"
             onClick={() => (typeof back === 'string' ? nav(back) : nav(-1))}
           >
-            ←
+            {Icon.back}
           </button>
         )}
-        <h1>{title}</h1>
+        <div className="titles">
+          {kicker && <span className="kicker">{kicker}</span>}
+          <h1>{title}</h1>
+        </div>
         {actions}
       </header>
       <main className="content">{children}</main>
@@ -118,7 +124,7 @@ export function Sheet({
         <div className="spread">
           <h2>{title}</h2>
           <button className="icon-btn" aria-label="Close" onClick={onClose}>
-            ✕
+            {Icon.close}
           </button>
         </div>
         {children}
@@ -200,14 +206,17 @@ export function NumInput({
   parse = parseNumber,
   format = (n) => String(n),
   ariaLabel,
+  className = 'num',
 }: {
   value: number | undefined;
-  unit: string;
+  /** Shown inside the field; leave out when a label elsewhere names the unit. */
+  unit?: string;
   placeholder?: string;
   onCommit: (v: number | undefined) => void;
   parse?: (s: string) => number | undefined;
   format?: (n: number) => string;
   ariaLabel: string;
+  className?: string;
 }) {
   const [text, setText] = useState(value != null ? format(value) : '');
   const focused = useRef(false);
@@ -216,7 +225,7 @@ export function NumInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
   return (
-    <div className="num">
+    <div className={className}>
       <input
         aria-label={ariaLabel}
         inputMode="decimal"
@@ -235,7 +244,7 @@ export function NumInput({
           if (v !== value) onCommit(v);
         }}
       />
-      <span>{unit}</span>
+      {unit && <span>{unit}</span>}
     </div>
   );
 }
@@ -263,6 +272,8 @@ export function parseDuration(s: string): number | undefined {
 /* ── Icons ────────────────────────────────────────────────── */
 
 const stroke = {
+  className: 'ico',
+  'aria-hidden': true,
   fill: 'none',
   stroke: 'currentColor',
   strokeWidth: 1.8,
@@ -270,7 +281,89 @@ const stroke = {
   strokeLinejoin: 'round' as const,
 };
 
+const bold = { ...stroke, strokeWidth: 2.2 };
+
 export const Icon = {
+  plan: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </svg>
+  ),
+  back: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M14.5 5.5 8 12l6.5 6.5" />
+    </svg>
+  ),
+  close: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2.6}>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  ),
+  dash: (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2.6}>
+      <path d="M7 12h10" />
+    </svg>
+  ),
+  plus: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M12 6v12M6 12h12" />
+    </svg>
+  ),
+  minus: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M6 12h12" />
+    </svg>
+  ),
+  arrow: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  ),
+  chevDown: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M6 9.5l6 6 6-6" />
+    </svg>
+  ),
+  chevRight: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M9.5 5.5 16 12l-6.5 6.5" />
+    </svg>
+  ),
+  more: (
+    <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
+      <circle cx="5.5" cy="12" r="1.7" />
+      <circle cx="12" cy="12" r="1.7" />
+      <circle cx="18.5" cy="12" r="1.7" />
+    </svg>
+  ),
+  clock: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </svg>
+  ),
+  bolt: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />
+    </svg>
+  ),
+  info: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5M12 7.8v.2" />
+    </svg>
+  ),
+  pencil: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 20l1-4L16.5 4.5l3 3L8 19z" />
+    </svg>
+  ),
   today: (
     <svg viewBox="0 0 24 24" {...stroke}>
       <path d="M4 11.5 12 4l8 7.5V20H4z" />

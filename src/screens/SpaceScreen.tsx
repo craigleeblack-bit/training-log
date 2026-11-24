@@ -5,7 +5,7 @@ import { db, uid, type Programme, type Routine } from '../db/schema';
 import { programmeProgress } from '../db/queries';
 import { isoDate, relativeDay } from '../lib/dates';
 import { deleteSpace, startWorkout } from '../actions';
-import { Page, SectionTitle, useFeedback } from '../ui';
+import { Icon, Page, SectionTitle, useFeedback } from '../ui';
 import { SpaceForm } from './Home';
 
 export default function SpaceScreen() {
@@ -80,7 +80,7 @@ export default function SpaceScreen() {
         back="/"
         actions={
           <button className="icon-btn" aria-label="Edit space" onClick={() => setEditing(true)}>
-            ✎
+            {Icon.pencil}
           </button>
         }
       >
@@ -99,7 +99,7 @@ export default function SpaceScreen() {
                       </div>
                     </div>
                     {p.active && <span className="badge ok">Active</span>}
-                    <span className="chev">›</span>
+                    {Icon.chevRight}
                   </Link>
                 );
               })}
@@ -161,7 +161,7 @@ export default function SpaceScreen() {
                 </div>
               </div>
               {w.status === 'skipped' && <span className="badge">Skipped</span>}
-              <span className="chev">›</span>
+              {Icon.chevRight}
             </Link>
           ))}
           {!history.length && <div className="empty">Nothing logged here yet.</div>}

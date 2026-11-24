@@ -6,7 +6,7 @@ import { CHART_LABEL, chartValue, exerciseHistory, summariseSets, type ExerciseS
 import { niceDate } from '../lib/dates';
 import { buildExerciseContext } from '../lib/claude';
 import { useAskClaude } from '../actions';
-import { Chips, Field, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+import { Chips, Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
 
 export function ExerciseList() {
   const nav = useNavigate();
@@ -25,7 +25,7 @@ export function ExerciseList() {
   return (
     <Page
       title="Exercises"
-      large
+      back="/library"
       actions={
         <button className="btn small" onClick={add}>
           + New
@@ -40,7 +40,7 @@ export function ExerciseList() {
               <div className="title">{e.name}</div>
               <div className="sub">{[e.equipment, MEASURE_LABEL[e.measure]].filter(Boolean).join(' · ')}</div>
             </div>
-            <span className="chev">›</span>
+            {Icon.chevRight}
           </Link>
         ))}
         {!shown.length && (
@@ -204,7 +204,7 @@ export function ExerciseDetail() {
       back
       actions={
         <button className="icon-btn" aria-label="Edit exercise" onClick={() => setEditing(true)}>
-          ✎
+          {Icon.pencil}
         </button>
       }
     >
@@ -254,7 +254,7 @@ export function ExerciseDetail() {
               <div className="title">{summariseSets(h.sets, e.measure)}</div>
               <div className="sub">{niceDate(h.date)}</div>
             </div>
-            <span className="chev">›</span>
+            {Icon.chevRight}
           </Link>
         ))}
         {!history.length && <div className="empty">Not logged yet.</div>}

@@ -132,7 +132,7 @@ export default function Settings() {
   };
 
   return (
-    <Page title="Settings" large>
+    <Page title="Settings" back="/">
       <SectionTitle>Claude</SectionTitle>
       <div className="card stack">
         <Field label="Claude Project link">

@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Programme, type ProgrammeSlot, type Routine } from '../db/schema';
-import { closedSlots, programmeProgress, slotDate, slotKey } from '../db/queries';
-import { dayName, isoDate, niceDate } from '../lib/dates';
+import { db, uid, type Programme, type ProgrammeSlot, type Routine } from '../db/schema';
+import { closedSlots, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
+import { addDays, dayName, daysBetween, isoDate, niceDate, parseIso } from '../lib/dates';
 import { startWorkout } from '../actions';
-import { Field, Page, Sheet, parseNumber, useFeedback } from '../ui';
+import { Field, Icon, Page, Sheet, parseNumber, useFeedback } from '../ui';
 
 function SlotForm({
   slot,
@@ -25,7 +25,7 @@ function SlotForm({
   const [s, setS] = useState(slot);
   const set = (changes: Partial<ProgrammeSlot>) => setS((prev) => ({ ...prev, ...changes }));
   return (
-    <Sheet title={`Week ${slot.week} · ${dateLabel}`} onClose={onClose}>
+    <Sheet title={`Week ${slot.week}, ${dateLabel}`} onClose={onClose}>
       <Field label="Session name">
         <input value={s.title} placeholder="Strength A" onChange={(e) => set({ title: e.target.value })} />
       </Field>
@@ -37,7 +37,7 @@ function SlotForm({
             set({ routineId: r?.id, title: s.title || r?.name || '' });
           }}
         >
-          <option value="">None — free text only</option>
+          <option value="">None, free text only</option>
           {routines.map((r) => (
             <option key={r.id} value={r.id}>
               {r.name}
@@ -84,12 +84,21 @@ function SlotForm({
   );
 }
 
-export default function ProgrammeScreen() {
-  const { id = '' } = useParams();
+interface Day {
+  week: number;
+  day: number;
+}
+
+/**
+ * A programme as a calendar: one row per week, one mark per day, and a card for the selected day.
+ * `root` is the Plan tab itself (no back button, and the programme can be switched).
+ */
+function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onSwitch?: () => void }) {
   const nav = useNavigate();
   const { confirm } = useFeedback();
   const [editMode, setEditMode] = useState(false);
-  const [editing, setEditing] = useState<{ week: number; day: number }>();
+  const [editing, setEditing] = useState<Day>();
+  const [picked, setPicked] = useState<Day>();
   const today = isoDate();
 
   const data = useLiveQuery(async () => {
@@ -115,21 +124,33 @@ export default function ProgrammeScreen() {
   const closed = closedSlots(p, workouts);
   const progress = programmeProgress(p, workouts);
   const patch = (changes: Partial<Programme>) => db.programmes.update(id, changes);
-  const find = (week: number, day: number) => p.slots.find((s) => s.week === week && s.day === day);
+  const find = (d: Day) => p.slots.find((s) => s.week === d.week && s.day === d.day);
+
+  const offset = daysBetween(p.startDate, today);
+  const running = offset >= 0 && offset < p.weeks * 7;
+  const thisWeek = running ? Math.floor(offset / 7) + 1 : undefined;
+  const weekLabel = offset < 0 ? `Starts ${niceDate(p.startDate, today)}` : running ? `Week ${thisWeek} of ${p.weeks}` : 'Finished';
+
+  // The day in view: the one tapped, else today, else the next session still to do.
+  const upcoming = nextSlot(p, workouts);
+  const fallback: Day = running
+    ? { week: Math.floor(offset / 7) + 1, day: offset % 7 }
+    : upcoming
+      ? { week: upcoming.week, day: upcoming.day }
+      : { week: 1, day: 0 };
+  const sel = picked && picked.week <= p.weeks ? picked : fallback;
+  const slot = find(sel);
+  const selDate = slotDate(p, sel);
+  const selDone = slot ? closed.get(slotKey(slot)) : undefined;
 
   const saveSlot = (next: ProgrammeSlot) => {
     void patch({ slots: [...p.slots.filter((s) => !(s.week === next.week && s.day === next.day)), next] });
     setEditing(undefined);
   };
 
-  const open = async (week: number, day: number) => {
-    const slot = find(week, day);
-    if (editMode || !slot) return setEditing({ week, day });
-    const done = closed.get(slotKey(slot));
-    if (done) return nav(`/workout/${done.id}`);
-    if (slot.rest) return;
-    const routine = routines.find((r) => r.id === slot.routineId);
-    nav(`/workout/${await startWorkout({ spaceId: p.spaceId, routine, programme: p, slot })}`);
+  const start = async (s: ProgrammeSlot) => {
+    const routine = routines.find((r) => r.id === s.routineId);
+    nav(`/workout/${await startWorkout({ spaceId: p.spaceId, routine, programme: p, slot: s })}`);
   };
 
   const remove = async () => {
@@ -141,17 +162,24 @@ export default function ProgrammeScreen() {
     });
     if (ok) {
       await db.programmes.delete(id);
-      nav(-1);
+      if (root) setEditMode(false);
+      else nav(-1);
     }
   };
 
-  const editingSlot = editing && (find(editing.week, editing.day) ?? { ...editing, title: '' });
+  const editingSlot = editing && (find(editing) ?? { ...editing, title: '' });
+  const targets =
+    slot && !slot.rest
+      ? [slot.targetMinutes && `${slot.targetMinutes} min`, slot.targetRpe && `RPE ${slot.targetRpe}`].filter(Boolean).join(', ')
+      : '';
 
   return (
     <div style={{ ['--space' as string]: space?.color }}>
       <Page
-        title={p.name}
-        back
+        title={root ? 'Plan' : p.name}
+        kicker={root ? undefined : space?.name}
+        large={root}
+        back={!root}
         actions={
           <button className="btn small" onClick={() => setEditMode((v) => !v)}>
             {editMode ? 'Done' : 'Edit'}
@@ -189,57 +217,136 @@ export default function ProgrammeScreen() {
           </div>
         ) : (
           <div className="card stack">
-            <div className="spread">
-              <span className="sub">
-                Started {niceDate(p.startDate)} · {p.weeks} weeks
-              </span>
-              {p.active && <span className="badge ok">Active</span>}
-            </div>
-            <div className="progress">
+            {root &&
+              (onSwitch ? (
+                <button className="switcher" aria-label={`${p.name}. Switch programme`} onClick={onSwitch}>
+                  <span className="name">
+                    <span className="dot" />
+                    <span>{p.name}</span>
+                  </span>
+                  {Icon.chevDown}
+                </button>
+              ) : (
+                <div className="switcher">
+                  <span className="name">
+                    <span className="dot" />
+                    <span>{p.name}</span>
+                  </span>
+                </div>
+              ))}
+            <div className="progress" role="img" aria-label={`${progress.done} of ${progress.total} sessions done`}>
               <i style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
             </div>
-            <span className="sub">
-              {progress.done} of {progress.total} sessions done
-            </span>
-            {p.notes && <p className="prescription">{p.notes}</p>}
+            <div className="spread sub">
+              <span>{weekLabel}</span>
+              <span>
+                {progress.done} of {progress.total} sessions
+              </span>
+            </div>
+            {p.notes && <p className="prescription clamp">{p.notes}</p>}
           </div>
         )}
 
-        {Array.from({ length: p.weeks }, (_, w) => w + 1).map((week) => (
-          <div key={week} className="week">
-            <div className="week-label">Week {week}</div>
-            {Array.from({ length: 7 }, (_, day) => {
-              const slot = find(week, day);
-              const date = slotDate(p, { week, day });
-              const state = slot ? closed.get(slotKey(slot))?.status : undefined;
-              if (!slot && !editMode) return null;
-              return (
-                <button
-                  key={day}
-                  className={`slot${slot?.rest ? ' rest' : ''}${date === today ? ' today-slot' : ''}`}
-                  onClick={() => open(week, day)}
-                >
-                  <span className="day">{dayName(date)}</span>
-                  <div className="grow" style={{ minWidth: 0, flex: 1 }}>
-                    <div className="title">{slot?.title ?? <span className="muted">+ Add session</span>}</div>
-                    {slot && !slot.rest && (slot.targetMinutes || slot.targetRpe) && (
-                      <div className="sub">
-                        {[slot.targetMinutes && `${slot.targetMinutes} min`, slot.targetRpe && `RPE ${slot.targetRpe}`]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                    )}
-                  </div>
-                  {slot && !slot.rest && (
-                    <span className={`tick ${state ?? ''}`} aria-label={state ?? 'not done'}>
-                      {state === 'done' ? '✓' : state === 'skipped' ? '–' : ''}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        <div className="cal">
+          <div className="cal-head" aria-hidden>
+            {Array.from({ length: 7 }, (_, day) => (
+              <span key={day}>{dayName(addDays(p.startDate, day))[0]}</span>
+            ))}
           </div>
-        ))}
+          {Array.from({ length: p.weeks }, (_, w) => w + 1).map((week) => (
+            <div key={week} className={`cal-week${week === thisWeek ? ' current' : ''}`}>
+              {Array.from({ length: 7 }, (_, day) => {
+                const s = find({ week, day });
+                const date = slotDate(p, { week, day });
+                const status = s ? closed.get(slotKey(s))?.status : undefined;
+                const training = !!s && !s.rest;
+                const mark =
+                  status === 'done' ? 'done' : status === 'skipped' ? 'skipped' : date === today ? 'today' : training ? 'planned' : '';
+                const isSel = !editMode && sel.week === week && sel.day === day;
+                return (
+                  <button
+                    key={day}
+                    className={`cal-day${isSel ? ' sel' : ''}`}
+                    aria-pressed={isSel}
+                    aria-label={`${niceDate(date, today)}: ${s ? s.title : 'nothing planned'}${status ? `, ${status}` : ''}`}
+                    onClick={() => (editMode ? setEditing({ week, day }) : setPicked({ week, day }))}
+                  >
+                    <span className={`daymark ${mark}`}>
+                      {status === 'done' ? Icon.check : status === 'skipped' ? Icon.dash : parseIso(date).getDate()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="legend" aria-hidden>
+          <span>
+            <i className="done" />
+            Done
+          </span>
+          <span>
+            <i className="skipped" />
+            Skipped
+          </span>
+          <span>
+            <i className="planned" />
+            Planned
+          </span>
+          <span>
+            <i className="today" />
+            Today
+          </span>
+        </div>
+
+        {!editMode && (
+          <section className="card daycard" aria-label="Selected day">
+            <div className="top">
+              <div>
+                <small>
+                  {selDate === today ? 'Today, ' : ''}
+                  {niceDate(selDate, today)}
+                </small>
+                <h2>{slot ? slot.title : 'Nothing planned'}</h2>
+                {targets && <span className="sub">{targets}</span>}
+              </div>
+              <div className="acts">
+                {slot && (
+                  <button className="icon-btn" aria-label="Edit this day" onClick={() => setEditing(sel)}>
+                    {Icon.pencil}
+                  </button>
+                )}
+                {!slot ? (
+                  <button className="btn" onClick={() => setEditing(sel)}>
+                    Add session
+                  </button>
+                ) : selDone ? (
+                  <Link className="btn" to={`/workout/${selDone.id}`}>
+                    View
+                  </Link>
+                ) : slot.rest ? null : (
+                  <button className="btn primary" onClick={() => start(slot)}>
+                    Start
+                    {Icon.arrow}
+                  </button>
+                )}
+              </div>
+            </div>
+            {slot?.prescription && !slot.rest && <p className="prescription clamp">{slot.prescription}</p>}
+          </section>
+        )}
+
+        {root && !editMode && (
+          <div className="card flush">
+            <Link to="/history" className="row">
+              <div className="grow">
+                <div className="title">History</div>
+              </div>
+              {Icon.chevRight}
+            </Link>
+          </div>
+        )}
 
         {editMode && (
           <button className="btn ghost danger" onClick={remove}>
@@ -251,7 +358,7 @@ export default function ProgrammeScreen() {
           <SlotForm
             slot={editingSlot}
             routines={routines}
-            dateLabel={niceDate(slotDate(p, editing))}
+            dateLabel={niceDate(slotDate(p, editing), today)}
             onClose={() => setEditing(undefined)}
             onSave={saveSlot}
             onClear={() => {
@@ -262,5 +369,110 @@ export default function ProgrammeScreen() {
         )}
       </Page>
     </div>
+  );
+}
+
+export default function ProgrammeScreen() {
+  const { id = '' } = useParams();
+  return <ProgrammeView key={id} id={id} />;
+}
+
+const PLAN_KEY = 'plan-programme';
+
+function recall(): string | undefined {
+  try {
+    return sessionStorage.getItem(PLAN_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The Plan tab: the programme you are following, with a way to switch between programmes. */
+export function PlanScreen() {
+  const nav = useNavigate();
+  const [chosen, setChosen] = useState(recall);
+  const [switching, setSwitching] = useState(false);
+
+  const data = useLiveQuery(async () => {
+    const [programmes, spaces] = await Promise.all([db.programmes.toArray(), db.spaces.orderBy('order').toArray()]);
+    return { programmes, spaces };
+  }, []);
+  if (!data) return null;
+  const { programmes, spaces } = data;
+
+  // Active programmes first, then the most recently started.
+  const sorted = [...programmes].sort((a, b) => Number(b.active) - Number(a.active) || b.startDate.localeCompare(a.startDate));
+  const current = sorted.find((p) => p.id === chosen) ?? sorted[0];
+
+  const choose = (id: string) => {
+    setChosen(id);
+    setSwitching(false);
+    try {
+      sessionStorage.setItem(PLAN_KEY, id);
+    } catch {
+      /* private mode: the choice simply lasts until the tab is left */
+    }
+  };
+
+  const create = async (spaceId: string) => {
+    const p: Programme = { id: uid(), spaceId, name: 'New programme', startDate: isoDate(), weeks: 4, slots: [], active: true };
+    await db.programmes.add(p);
+    nav(`/programme/${p.id}`);
+  };
+
+  if (!current) {
+    return (
+      <Page title="Plan" large>
+        <section className="hero">
+          <div>
+            <h2 className="long">No programme yet</h2>
+            <p className="lede">A programme lays your sessions out week by week, and Today shows the next one.</p>
+          </div>
+          {spaces.map((s) => (
+            <button key={s.id} className="btn block" onClick={() => create(s.id)}>
+              New programme in {s.name}
+            </button>
+          ))}
+          {!spaces.length && (
+            <Link className="btn block" to="/">
+              Create a space first
+            </Link>
+          )}
+        </section>
+        <div className="card flush">
+          <Link to="/history" className="row">
+            <div className="grow">
+              <div className="title">History</div>
+            </div>
+            {Icon.chevRight}
+          </Link>
+        </div>
+      </Page>
+    );
+  }
+
+  return (
+    <>
+      <ProgrammeView key={current.id} id={current.id} root onSwitch={sorted.length > 1 ? () => setSwitching(true) : undefined} />
+      {switching && (
+        <Sheet title="Programmes" onClose={() => setSwitching(false)}>
+          <div className="card flush">
+            {sorted.map((p) => {
+              const space = spaces.find((s) => s.id === p.spaceId);
+              return (
+                <button key={p.id} className="row" aria-current={p.id === current.id ? 'true' : undefined} onClick={() => choose(p.id)}>
+                  <span className="dot" style={{ ['--space' as string]: space?.color }} />
+                  <div className="grow">
+                    <div className="title">{p.name}</div>
+                    <div className="sub">{[space?.name, `${p.weeks} weeks`].filter(Boolean).join(', ')}</div>
+                  </div>
+                  {p.id === current.id && <span className="badge ok">Showing</span>}
+                </button>
+              );
+            })}
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
