@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dev-dist/
+
+# Personal material: never published
+Resources/
+seed/
+*.local
+
+# Personal setup notes (names my own files and health context)
+claude-project-setup.md
