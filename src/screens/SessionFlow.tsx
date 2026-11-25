@@ -33,6 +33,7 @@ import { Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFe
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import { VideoButton } from './Exercises';
 import TrackSummary from './TrackSummary';
+import { newRecords } from '../lib/stats';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -512,6 +513,14 @@ export default function SessionFlow({
   // The exercise in view is remembered by identity, so reordering or removing others never moves you.
   const [currentId, setCurrentId] = useState(() => (items.find((i) => !complete(i)) ?? items[items.length - 1])?.id);
 
+  // On the wrap-up, say what this session beat. Only looked up once that screen is showing.
+  const beaten = useLiveQuery(async () => {
+    if (view !== 'wrap') return [];
+    const ids = [...new Set(w.items.map((i) => i.exerciseId))];
+    const [workouts, history] = await Promise.all([db.workouts.toArray(), db.sets.where('exerciseId').anyOf(ids).toArray()]);
+    return newRecords({ workouts, sets: history, tracks: [] }, w.id, exercises.filter((e) => ids.includes(e.id)));
+  }, [view, w.id, sets.length]);
+
   // A finished rest ends itself here, so the next set is simply waiting.
   const restOver = timer.active && timer.name === REST_TIMER && !!timer.position?.done;
   const stopTimer = timer.stop;
@@ -783,6 +792,17 @@ export default function SessionFlow({
             </div>
 
             <TrackSummary workout={w} />
+
+            {beaten && beaten.length > 0 && (
+              <div className="card stack records-card">
+                <b>New personal best{beaten.length === 1 ? '' : 's'}</b>
+                {beaten.map((line) => (
+                  <span key={line} className="sub">
+                    {line}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="ask">
               <h2>How hard was it?</h2>

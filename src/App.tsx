@@ -20,6 +20,7 @@ import Calendar from './screens/Calendar';
 // Screens with heavy libraries of their own load when first opened, so the app starts fast.
 const Passes = lazy(() => import('./screens/Passes'));
 const TrackScreen = lazy(() => import('./screens/TrackScreen'));
+const Progress = lazy(() => import('./screens/Progress'));
 
 /** A recording under way follows you round the app, one tap from its screen. */
 function TrackPill() {
@@ -110,6 +111,7 @@ export default function App() {
               <Route path="/exercise/:id" element={<ExerciseDetail />} />
               <Route path="/history" element={<History />} />
               <Route path="/calendar" element={<Calendar />} />
+              <Route path="/progress" element={<Progress />} />
               <Route path="/timer" element={<TimerScreen />} />
               <Route path="/library" element={<Library />} />
               <Route path="/note/:id" element={<NoteScreen />} />

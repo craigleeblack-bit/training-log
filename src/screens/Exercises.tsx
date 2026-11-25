@@ -3,8 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, MEASURE_LABEL, uid, type ComplexPart, type Exercise, type Link as ExLink, type Measure } from '../db/schema';
 import {
-  CHART_LABEL,
-  chartValue,
   complexTotals,
   describeParts,
   exerciseHistory,
@@ -17,6 +15,8 @@ import { buildExerciseContext } from '../lib/claude';
 import { useAskClaude } from '../actions';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { cleanUrl, videoFor, videoSearchUrl } from '../lib/videos';
+import { METRIC_LABEL, METRIC_UNIT, metricsFor, metricValue, records, sideGap, type Metric } from '../lib/stats';
+import { LineChart } from '../charts';
 import { Chips, Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
 
 const nonEmpty = <T,>(list: T[]): T[] | undefined => (list.length ? list : undefined);
@@ -121,38 +121,38 @@ export function VideoButton({ exercise }: { exercise: Exercise }) {
   );
 }
 
-function Chart({ sessions, measure }: { sessions: ExerciseSession[]; measure: Measure }) {
+/** An exercise's progress by a chosen measure, with its bests underneath. */
+function ProgressCard({ sessions, measure }: { sessions: ExerciseSession[]; measure: Measure }) {
+  const options = metricsFor(measure);
+  const [metric, setMetric] = useState<Metric>(options[0]);
   const points = [...sessions]
     .reverse()
-    .map((s) => ({ date: s.date, v: chartValue(s.sets, measure) }))
+    .map((s) => ({ date: s.date, v: metricValue(s.sets, metric) }))
     .filter((p): p is { date: string; v: number } => p.v != null)
-    .slice(-20);
-  if (points.length < 2) return null;
-  const W = 320;
-  const H = 130;
-  const pad = { l: 34, r: 10, t: 12, b: 22 };
-  const min = Math.min(...points.map((p) => p.v));
-  const max = Math.max(...points.map((p) => p.v));
-  const span = max - min || 1;
-  const x = (i: number) => pad.l + (i / (points.length - 1)) * (W - pad.l - pad.r);
-  const y = (v: number) => pad.t + (1 - (v - min) / span) * (H - pad.t - pad.b);
-  const fmt = (n: number) => String(Math.round(n * 10) / 10);
+    .slice(-30)
+    .map((p) => ({ label: niceDate(p.date).slice(4), title: niceDate(p.date), value: p.v }));
+  const bests = records(sessions.flatMap((s) => s.sets), measure);
+  const gap = sideGap(sessions[0]?.sets ?? []);
+  if (points.length < 2 && !bests.length) return null;
   return (
     <div className="card stack">
-      <span className="sub">{CHART_LABEL[measure]}</span>
-      <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${CHART_LABEL[measure]} over ${points.length} sessions`}>
-        <line className="axis" x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} />
-        <text x={pad.l - 6} y={y(max) + 4} textAnchor="end">{fmt(max)}</text>
-        {max !== min && <text x={pad.l - 6} y={y(min) + 4} textAnchor="end">{fmt(min)}</text>}
-        <text x={pad.l} y={H - 6}>{niceDate(points[0].date).slice(4)}</text>
-        <text x={W - pad.r} y={H - 6} textAnchor="end">{niceDate(points[points.length - 1].date).slice(4)}</text>
-        <polyline className="line" points={points.map((p, i) => `${x(i)},${y(p.v)}`).join(' ')} />
-        {points.map((p, i) => (
-          <circle key={i} className="pt" cx={x(i)} cy={y(p.v)} r={3}>
-            <title>{`${niceDate(p.date)}: ${fmt(p.v)}`}</title>
-          </circle>
-        ))}
-      </svg>
+      {options.length > 1 && <Chips options={options} value={metric} onChange={(v) => v && setMetric(v)} label={(k) => METRIC_LABEL[k]} />}
+      {points.length >= 2 ? (
+        <LineChart points={points} name={METRIC_LABEL[metric]} unit={METRIC_UNIT[metric]} />
+      ) : (
+        <p className="sub">A chart appears after two sessions.</p>
+      )}
+      {bests.map((r) => (
+        <Link key={r.label} to={`/workout/${r.workoutId}`} className="spread record">
+          <span className="sub">{r.label}</span>
+          <b>{r.value}</b>
+        </Link>
+      ))}
+      {gap && (
+        <p className="sub">
+          Last time the {gap.stronger === 'L' ? 'left' : 'right'} side did {Math.round(gap.share * 100)}% more.
+        </p>
+      )}
     </div>
   );
 }
@@ -374,7 +374,7 @@ export function ExerciseDetail() {
         Ask Claude about this
       </button>
 
-      <Chart sessions={history} measure={e.measure} />
+      <ProgressCard key={e.measure} sessions={history} measure={e.measure} />
 
       <SectionTitle>History</SectionTitle>
       <div className="card flush">
