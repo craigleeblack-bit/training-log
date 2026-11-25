@@ -1068,6 +1068,156 @@ button {
   color: var(--ok);
 }
 
+.timer-face.prep .clock {
+  color: var(--warn);
+}
+
+.timer-face .where {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+/* Previous, pause, next. */
+.transport {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+}
+
+.transport .icon-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+}
+
+/* A list of labelled − value + rows, used to build and adjust timers. */
+.adjust-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.adjust-list > * {
+  border-bottom: 1px solid var(--line);
+}
+
+.adjust-list > :last-child {
+  border-bottom: 0;
+}
+
+.adjust-list > p {
+  padding: 12px 14px;
+}
+
+.adjust,
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 8px 6px 14px;
+  font-weight: 560;
+}
+
+.toggle {
+  padding-right: 14px;
+}
+
+.toggle small {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.toggle input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.adjust-ctl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.adjust-ctl button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.adjust-ctl.wide button {
+  width: auto;
+  padding: 0 14px;
+}
+
+.adjust-ctl button:disabled {
+  opacity: 0.35;
+}
+
+.adjust-ctl .ico {
+  width: 18px;
+  height: 18px;
+}
+
+.adjust-num {
+  width: 68px;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.adjust-num input {
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: center;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.adjust-num input:focus {
+  background: var(--surface-2);
+}
+
+/* The tappable body of a row that also has a small tool button beside it. */
+.row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: -13px 0 -13px -14px;
+  padding: 13px 8px 13px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.row-main:active {
+  background: var(--surface-2);
+}
+
 .pill {
   position: fixed;
   left: 50%;

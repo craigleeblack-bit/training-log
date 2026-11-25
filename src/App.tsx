@@ -27,10 +27,13 @@ function TimerPill() {
   const nav = useNavigate();
   const { pathname } = useLocation();
   if (!t.active || !t.position || pathname === '/timer') return null;
+  const phase = t.position.phase;
+  // A stopwatch shows the time so far; everything else, the time left.
+  const shown = phase?.open ? phase.seconds - t.position.remaining : Math.ceil(t.position.remaining);
   return (
     <button className="pill" onClick={() => (t.position?.done ? t.stop() : nav('/timer'))}>
-      <span>{t.position.done ? `${t.name} done` : (t.position.phase?.label ?? t.name)}</span>
-      {!t.position.done && <span>{formatSeconds(Math.ceil(t.position.remaining))}</span>}
+      <span>{t.position.done ? `${t.name} done` : (phase?.label ?? t.name)}</span>
+      {!t.position.done && <span>{formatSeconds(shown)}</span>}
     </button>
   );
 }
