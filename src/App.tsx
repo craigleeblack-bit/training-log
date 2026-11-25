@@ -1,5 +1,5 @@
 import { HashRouter, Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { formatSeconds } from './db/queries';
 import { FeedbackProvider, Icon } from './ui';
 import { TimerProvider, useTimer } from './timerContext';
@@ -14,9 +14,12 @@ import { Library, NoteScreen } from './screens/Library';
 import Settings from './screens/Settings';
 import History from './screens/History';
 
+// Screens with heavy libraries of their own load when first opened, so the app starts fast.
+const Passes = lazy(() => import('./screens/Passes'));
+
 /** Four places to be. Every other screen belongs to one of them, which stays lit while you are there. */
 const TABS = [
-  { to: '/', label: 'Today', icon: Icon.today, owns: /^\/($|space\/|routine\/|workout\/|settings)/ },
+  { to: '/', label: 'Today', icon: Icon.today, owns: /^\/($|space\/|routine\/|workout\/|settings|pass|track\/)/ },
   { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|history)/ },
   { to: '/timer', label: 'Timer', icon: Icon.timer, owns: /^\/timer/ },
   { to: '/library', label: 'Library', icon: Icon.library, owns: /^\/(library|note\/|exercises|exercise\/)/ },
@@ -72,6 +75,7 @@ export default function App() {
         <TimerProvider>
           <ScrollReset />
           <div className="app">
+            <Suspense fallback={null}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/space/:id" element={<SpaceScreen />} />
@@ -86,8 +90,10 @@ export default function App() {
               <Route path="/library" element={<Library />} />
               <Route path="/note/:id" element={<NoteScreen />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/pass" element={<Passes />} />
               <Route path="*" element={<Home />} />
             </Routes>
+            </Suspense>
           </div>
           <TimerPill />
           <TabBar />

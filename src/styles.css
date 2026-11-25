@@ -1218,6 +1218,125 @@ button {
   background: var(--surface-2);
 }
 
+/* ── Passes and the scanner ──────────────────────────────── */
+.pass-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pass-card {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.94rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.pass-thumb,
+.pass-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.pass-preview {
+  max-width: 220px;
+  justify-self: center;
+}
+
+.code-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.code-art.photo {
+  object-fit: contain;
+}
+
+.code-art.wide {
+  height: auto;
+}
+
+.code-text {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+/* A pass fills the screen on white, whatever the theme: readers need the contrast. */
+.pass-view {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #111;
+}
+
+.pass-view.dark {
+  background: #000;
+  color: #fff;
+}
+
+.pass-view .icon-btn {
+  color: inherit;
+}
+
+.pass-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 8px 8px;
+  font-size: 1.05rem;
+}
+
+.pass-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px 20px;
+}
+
+.pass-stage .code-art {
+  max-height: 100%;
+}
+
+.pass-hint {
+  padding: 12px 24px calc(env(safe-area-inset-bottom) + 24px);
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.scan-video {
+  width: 100%;
+  max-height: 100%;
+  border-radius: 18px;
+  object-fit: cover;
+}
+
 .pill {
   position: fixed;
   left: 50%;

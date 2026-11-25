@@ -251,9 +251,14 @@ export default function Home() {
       kicker={longDate(today)}
       large
       actions={
-        <Link to="/settings" className="icon-btn boxed" aria-label="Settings">
-          {Icon.settings}
-        </Link>
+        <>
+          <Link to="/pass" className="icon-btn boxed" aria-label="Gym passes and scanner">
+            {Icon.pass}
+          </Link>
+          <Link to="/settings" className="icon-btn boxed" aria-label="Settings">
+            {Icon.settings}
+          </Link>
+        </>
       }
     >
       <div style={{ ['--space' as string]: heroSpace?.color, display: 'contents' }}>
