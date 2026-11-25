@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { formatSeconds } from '../db/queries';
-import { countdownPhases, emomPhases, intervalPhases, PRESETS, totalSeconds, type Phase } from '../lib/timer';
+import { buildPhases, countdownPhases, DEFAULT_TIMERS, describeSpec, emomPhases, intervalPhases, totalSeconds, type Phase } from '../lib/timer';
+
+const PRESETS = DEFAULT_TIMERS.map((p) => ({ id: p.id, name: p.name, detail: describeSpec(p.spec), phases: buildPhases(p.spec) }));
 import { useTimer } from '../timerContext';
 import { Chips, Field, Page, SectionTitle, parseDuration, parseNumber } from '../ui';
 

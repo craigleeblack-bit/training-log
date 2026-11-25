@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import { guessCategory, type ExerciseCategory } from '../lib/categories';
+import { DEFAULT_TIMERS, type TimerSpec } from '../lib/timer';
 
 /** How an exercise is measured, which decides the inputs shown when logging a set. */
 export type Measure = 'weight_reps' | 'reps' | 'time' | 'distance' | 'rounds';
@@ -23,13 +25,30 @@ export interface Link {
   url: string;
 }
 
+/** One movement inside a complex: "Double clean × 2". */
+export interface ComplexPart {
+  name: string;
+  /** Reps of this movement in one round of the complex. */
+  reps: number;
+  /** The library exercise these reps count towards, when there is one. */
+  exerciseId?: string;
+}
+
 export interface Exercise {
   id: string;
   name: string;
   measure: Measure;
+  /** Section of the exercise list: bodyweight, kettlebell, machine… */
+  category?: ExerciseCategory;
   equipment?: string;
   cues?: string;
   adjustments?: string;
+  /** A technique video to watch. */
+  video?: string;
+  /** Logged one side at a time by default. */
+  unilateral?: boolean;
+  /** What one round is made of, for an exercise measured in rounds. */
+  parts?: ComplexPart[];
   links: Link[];
 }
 
@@ -44,6 +63,14 @@ export interface RoutineItem {
   /** Rest between sets, in seconds. */
   rest?: number;
   note?: string;
+  /** How many implements the load is per: 2 for "2 × 16 kg" kettlebells. */
+  count?: number;
+  /** A different target for each set, such as a 1-2-3-4-5 ladder. */
+  repsBySet?: number[];
+  /** Log left and right separately. */
+  eachSide?: boolean;
+  /** Items sharing a group are done as a superset or circuit: one set of each, then rest. */
+  group?: string;
 }
 
 export type LogStyle = 'sets' | 'session';
@@ -119,6 +146,56 @@ export interface SetEntry {
   seconds?: number;
   metres?: number;
   note?: string;
+  /** How many implements the weight is per: 2 for a pair of 16 kg kettlebells. */
+  count?: number;
+  /** Which side, for a set logged left and right separately. */
+  side?: Side;
+}
+
+export type Side = 'L' | 'R';
+
+/** A saved timer on the Timer screen. */
+export interface TimerPreset {
+  id: string;
+  name: string;
+  spec: TimerSpec;
+  order: number;
+}
+
+/** A gym card or code to show at a turnstile or machine. */
+export interface Pass {
+  id: string;
+  name: string;
+  kind: 'image' | 'code';
+  /** Picture of the pass, as a data URL. */
+  image?: string;
+  /** Barcode format of a scanned code: "qr_code", "code_128"… */
+  format?: string;
+  /** What a scanned code says. */
+  text?: string;
+  note?: string;
+  order: number;
+}
+
+export type Activity = 'run' | 'walk' | 'ride' | 'other';
+
+/** One GPS fix: time (ms), latitude, longitude, and altitude in metres when known. */
+export type TrackPoint = [t: number, lat: number, lon: number, alt?: number];
+
+/** A recorded route. A pause starts a new segment, so the line never jumps across a gap. */
+export interface Track {
+  id: string;
+  workoutId: string;
+  date: string;
+  activity: Activity;
+  startedAt: number;
+  endedAt?: number;
+  segments: TrackPoint[][];
+  /** Distance covered, in metres. */
+  metres: number;
+  /** Time spent moving, in seconds. */
+  seconds: number;
+  source: 'gps' | 'gpx';
 }
 
 export type NoteKind = 'note' | 'book';
@@ -147,6 +224,9 @@ export class AppDB extends Dexie {
   sets!: Table<SetEntry, string>;
   notes!: Table<Note, string>;
   settings!: Table<Setting, string>;
+  timers!: Table<TimerPreset, string>;
+  passes!: Table<Pass, string>;
+  tracks!: Table<Track, string>;
 
   constructor(name = 'training-log') {
     super(name);
@@ -159,6 +239,26 @@ export class AppDB extends Dexie {
       sets: 'id, workoutId, exerciseId, date',
       notes: 'id, kind, order',
       settings: 'key',
+    });
+    this.version(2)
+      .stores({
+        exercises: 'id, name, category',
+        timers: 'id, order',
+        passes: 'id, order',
+        tracks: 'id, workoutId, date',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table<Exercise>('exercises')
+          .toCollection()
+          .modify((e) => {
+            e.category ??= guessCategory(e.name, e.equipment);
+          });
+        await tx.table<TimerPreset>('timers').bulkPut(DEFAULT_TIMERS);
+      });
+    // A brand-new database skips upgrades, so it gets the starter timers here.
+    this.on('populate', (tx) => {
+      void tx.table<TimerPreset>('timers').bulkAdd(DEFAULT_TIMERS);
     });
   }
 }
@@ -174,6 +274,9 @@ export const TABLES = [
   'sets',
   'notes',
   'settings',
+  'timers',
+  'passes',
+  'tracks',
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

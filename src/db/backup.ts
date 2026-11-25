@@ -1,7 +1,9 @@
-import { TABLES, type AppDB, type TableName } from './schema';
+import { TABLES, type AppDB, type Exercise, type TableName } from './schema';
+import { guessCategory } from '../lib/categories';
 
 export const BACKUP_APP = 'training-log';
-export const BACKUP_VERSION = 1;
+/** 2 added timers, passes and tracks. Older files simply lack them. */
+export const BACKUP_VERSION = 2;
 
 export interface Backup {
   app: typeof BACKUP_APP;
@@ -36,6 +38,9 @@ export type ImportMode = 'replace' | 'merge';
 /**
  * replace: wipe everything and load the backup.
  * merge: add or overwrite rows by id, leaving anything not in the backup alone.
+ *
+ * A file from before a table existed says nothing about it, so replace leaves that table as it is:
+ * restoring an old backup does not throw away your timers or passes.
  */
 export async function importBackup(db: AppDB, raw: unknown, mode: ImportMode = 'replace'): Promise<number> {
   const backup = validateBackup(raw);
@@ -43,10 +48,17 @@ export async function importBackup(db: AppDB, raw: unknown, mode: ImportMode = '
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) {
       const rows = backup.data[t] ?? [];
-      if (mode === 'replace') await db.table(t).clear();
+      // Routes belong to sessions, so they never outlive a replaced set of sessions.
+      if (mode === 'replace' && (backup.data[t] !== undefined || t === 'tracks')) await db.table(t).clear();
       if (rows.length) await db.table(t).bulkPut(rows);
       count += rows.length;
     }
+    // Older files have no sections for the exercise list.
+    await db.exercises
+      .filter((e) => !e.category)
+      .modify((e: Exercise) => {
+        e.category = guessCategory(e.name, e.equipment);
+      });
   });
   return count;
 }
