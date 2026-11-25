@@ -12,25 +12,27 @@ import {
   REST_TIMER,
   RPE,
   compactSet,
-  entryId,
+  addSet,
   fmtDuration,
+  moveItem,
+  removeItem,
+  removeSet,
   saveSet,
+  setCount,
+  swapItem,
   type Column,
   type NumKey,
   type SetValues,
 } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
 import { useTimer } from '../timerContext';
-import { Chips, Field, Icon, NumInput, Sheet, parseDuration, useFeedback } from '../ui';
+import { Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
+import { VideoButton } from './Exercises';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const loggedSets = (entries: SetEntry[]) => entries.filter(hasValue);
-
-/** How many sets an exercise shows: the plan, or more if more were logged. */
-const setCount = (item: RoutineItem, entries: SetEntry[]) =>
-  Math.max(item.sets ?? 1, loggedSets(entries).reduce((m, e) => Math.max(m, e.setNo), 0));
 
 /* ── One big number with − and + under it ─────────────────── */
 
@@ -102,7 +104,7 @@ function FocusExercise({
   onOptions: () => void;
 }) {
   const timer = useTimer();
-  const { toast } = useFeedback();
+  const { toast, confirm } = useFeedback();
   const [picked, setPicked] = useState<number>();
   const [draft, setDraft] = useState<Record<number, SetValues>>({});
   const [reading, setReading] = useState<'cues' | 'notes'>();
@@ -182,9 +184,20 @@ function FocusExercise({
     if (!more) onNext();
   };
 
-  const clear = async () => {
-    if (current == null) return;
-    await db.sets.delete(entryId(workout.id, item.id, current));
+  /** Take a set out altogether; the sets after it move up. */
+  const remove = async (setNo: number) => {
+    const entry = logged(setNo);
+    if (entry && setNo !== current) {
+      const ok = await confirm({
+        title: `Remove set ${setNo}?`,
+        body: `It has ${compactSet(entry, exercise.measure)} logged.`,
+        action: 'Remove set',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    await removeSet(workout.id, item.id, setNo);
+    setDraft({});
     setPicked(undefined);
   };
 
@@ -281,7 +294,21 @@ function FocusExercise({
           )}
         </div>
 
-        <div className={`sets${rows > 4 ? ' many' : ''}`} style={{ ['--n' as string]: rows }}>
+        <div className="sets-wrap">
+          <div className="sets-head">
+            <span>
+              {loggedSets(entries).length} of {rows} sets
+            </span>
+            <div className="mini-pm">
+              <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
+                {Icon.minus}
+              </button>
+              <button type="button" aria-label="Add a set" onClick={onAddSet}>
+                {Icon.plus}
+              </button>
+            </div>
+          </div>
+          <div className={`sets${rows > 4 ? ' many' : ''}`} style={{ ['--n' as string]: rows }}>
           {range.map((n) => {
             const entry = logged(n);
             const before = last?.sets.find((s) => s.setNo === n);
@@ -313,6 +340,7 @@ function FocusExercise({
               </button>
             );
           })}
+          </div>
         </div>
 
         {current != null ? (
@@ -353,8 +381,8 @@ function FocusExercise({
             <button className="btn primary big block" onClick={log}>
               Update set {current}
             </button>
-            <button className="quiet" onClick={clear}>
-              Clear this set
+            <button className="quiet" onClick={() => remove(current)}>
+              {rows > 1 ? 'Remove this set' : 'Clear this set'}
             </button>
           </>
         ) : (
@@ -378,6 +406,7 @@ function FocusExercise({
           {item.note && <p>{item.note}</p>}
           {exercise.cues && <p className="prescription">{exercise.cues}</p>}
           {exercise.adjustments && <p className="prescription muted">{exercise.adjustments}</p>}
+          <VideoButton exercise={exercise} />
           <Link className="btn" to={`/exercise/${exercise.id}`}>
             Exercise details and history
           </Link>
@@ -415,11 +444,11 @@ export default function SessionFlow({
   const complete = (item: RoutineItem) => loggedSets(entriesFor(item)).length >= setCount(item, entriesFor(item));
 
   const [view, setView] = useState<'log' | 'wrap'>('log');
-  const [sheet, setSheet] = useState<'options' | 'pick'>();
-  const [index, setIndex] = useState(() => {
-    const first = items.findIndex((i) => !complete(i));
-    return first < 0 ? Math.max(0, items.length - 1) : first;
-  });
+  const [sheet, setSheet] = useState<'options' | 'pick' | 'swap'>();
+  const [editList, setEditList] = useState(false);
+  const [swapping, setSwapping] = useState<string>();
+  // The exercise in view is remembered by identity, so reordering or removing others never moves you.
+  const [currentId, setCurrentId] = useState(() => (items.find((i) => !complete(i)) ?? items[items.length - 1])?.id);
 
   // A finished rest ends itself here, so the next set is simply waiting.
   const restOver = timer.active && timer.name === REST_TIMER && !!timer.position?.done;
@@ -429,7 +458,8 @@ export default function SessionFlow({
   }, [restOver, stopTimer]);
 
   const focus = w.logStyle === 'sets' && items.length > 0;
-  const at = Math.min(index, Math.max(0, items.length - 1));
+  const found = items.findIndex((i) => i.id === currentId);
+  const at = found < 0 ? 0 : found;
   const item = items[at];
   const exercise = item && exerciseById.get(item.exerciseId);
   const checked = new Set(w.checked ?? []);
@@ -450,6 +480,26 @@ export default function SessionFlow({
     await patch({ status, minutes: status === 'done' ? (w.minutes ?? suggestMinutes) : w.minutes });
     // Land on Today, which now shows the result and what is next; replace so Back does not reopen this.
     nav('/', { replace: true });
+  };
+
+  const nameOf = (i: RoutineItem) => exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
+
+  /** Losing logged sets is worth a question first; an untouched exercise just goes. */
+  const sureAbout = async (i: RoutineItem, title: string, action: string) => {
+    const n = loggedSets(entriesFor(i)).length;
+    if (!n) return true;
+    return confirm({
+      title,
+      body: `The ${n} set${n === 1 ? '' : 's'} logged for ${nameOf(i)} will be removed.`,
+      action,
+      danger: true,
+    });
+  };
+
+  const dropItem = async (i: RoutineItem) => {
+    if (!(await sureAbout(i, `Remove ${nameOf(i)}?`, 'Remove exercise'))) return;
+    if (i.id === currentId) setCurrentId((items[at + 1] ?? items[at - 1])?.id);
+    await removeItem(w.id, i.id);
   };
 
   const remove = async () => {
@@ -509,14 +559,25 @@ export default function SessionFlow({
       </header>
 
       {view === 'log' && focus && (
-        <div className="steps" role="img" aria-label={`Exercise ${at + 1} of ${items.length}`}>
+        <div className="steps" role="tablist" aria-label="Exercises in this session">
           {items.map((i, n) => {
             const entries = entriesFor(i);
-            const part = Math.min(1, loggedSets(entries).length / setCount(i, entries));
+            const done = loggedSets(entries).length;
+            const of = setCount(i, entries);
             return (
-              <i key={i.id} className={n === at ? 'here' : ''}>
-                <b style={{ width: `${part * 100}%` }} />
-              </i>
+              <button
+                key={i.id}
+                type="button"
+                role="tab"
+                aria-selected={n === at}
+                aria-label={`${nameOf(i)}, ${done} of ${of} sets`}
+                className={n === at ? 'here' : ''}
+                onClick={() => setCurrentId(i.id)}
+              >
+                <i>
+                  <b style={{ width: `${Math.min(1, done / of) * 100}%` }} />
+                </i>
+              </button>
             );
           })}
         </div>
@@ -530,13 +591,9 @@ export default function SessionFlow({
           exercise={exercise}
           entries={entriesFor(item)}
           isLast={at === items.length - 1}
-          onNext={() => setIndex(at + 1)}
+          onNext={() => setCurrentId(items[at + 1]?.id)}
           onWrap={() => setView('wrap')}
-          onAddSet={() =>
-            patch({
-              items: w.items.map((i) => (i.id === item.id ? { ...i, sets: setCount(item, entriesFor(item)) + 1 } : i)),
-            })
-          }
+          onAddSet={() => addSet(w.id, item.id)}
           onOptions={() => setSheet('options')}
         />
       )}
@@ -670,33 +727,87 @@ export default function SessionFlow({
       )}
 
       {sheet === 'options' && (
-        <Sheet title={w.title} onClose={() => setSheet(undefined)}>
-          {focus && (
-            <div className="card flush">
-              {items.map((i, n) => {
-                const entries = entriesFor(i);
-                return (
-                  <button
-                    key={i.id}
-                    className="row"
-                    aria-current={n === at ? 'step' : undefined}
-                    onClick={() => {
-                      setIndex(n);
-                      setSheet(undefined);
-                    }}
-                  >
-                    <span className={`tick${complete(i) ? ' done' : ''}`}>{complete(i) ? Icon.check : null}</span>
-                    <div className="grow">
-                      <div className="title">{exerciseById.get(i.exerciseId)?.name}</div>
-                      <div className="sub">
-                        {loggedSets(entries).length} of {setCount(i, entries)} sets
+        <Sheet
+          title={w.title}
+          onClose={() => {
+            setSheet(undefined);
+            setEditList(false);
+          }}
+        >
+          {items.length > 0 && (
+            <>
+              <SectionTitle action={<button onClick={() => setEditList((v) => !v)}>{editList ? 'Done' : 'Change'}</button>}>
+                Exercises
+              </SectionTitle>
+              <div className="card flush">
+                {items.map((i, n) => {
+                  const entries = entriesFor(i);
+                  const isDone = focus ? complete(i) : checked.has(i.id);
+                  const label = (
+                    <>
+                      <span className={`tick${isDone ? ' done' : ''}`}>{isDone ? Icon.check : null}</span>
+                      <div className="grow">
+                        <div className="title">{nameOf(i)}</div>
+                        {focus && (
+                          <div className="sub">
+                            {loggedSets(entries).length} of {setCount(i, entries)} sets
+                          </div>
+                        )}
                       </div>
+                    </>
+                  );
+                  if (editList) {
+                    return (
+                      <div key={i.id} className="row tools">
+                        {label}
+                        <button className="icon-btn sm" aria-label={`Move ${nameOf(i)} up`} disabled={n === 0} onClick={() => moveItem(w.id, i.id, -1)}>
+                          {Icon.chevUp}
+                        </button>
+                        <button
+                          className="icon-btn sm"
+                          aria-label={`Move ${nameOf(i)} down`}
+                          disabled={n === items.length - 1}
+                          onClick={() => moveItem(w.id, i.id, 1)}
+                        >
+                          {Icon.chevDown}
+                        </button>
+                        <button
+                          className="icon-btn sm"
+                          aria-label={`Swap ${nameOf(i)} for another exercise`}
+                          onClick={() => {
+                            setSwapping(i.id);
+                            setSheet('swap');
+                          }}
+                        >
+                          {Icon.swap}
+                        </button>
+                        <button className="icon-btn sm danger" aria-label={`Remove ${nameOf(i)}`} onClick={() => dropItem(i)}>
+                          {Icon.trash}
+                        </button>
+                      </div>
+                    );
+                  }
+                  return focus ? (
+                    <button
+                      key={i.id}
+                      className="row"
+                      aria-current={n === at ? 'step' : undefined}
+                      onClick={() => {
+                        setCurrentId(i.id);
+                        setSheet(undefined);
+                      }}
+                    >
+                      {label}
+                      {n === at && <span className="badge">Here</span>}
+                    </button>
+                  ) : (
+                    <div key={i.id} className="row">
+                      {label}
                     </div>
-                    {n === at && <span className="badge">Here</span>}
-                  </button>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </>
           )}
           <Field label="Date">
             <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
@@ -735,12 +846,23 @@ export default function SessionFlow({
         <ExercisePicker
           onClose={() => setSheet(undefined)}
           onPick={(e) => {
-            void patch({
-              items: [...w.items, { id: uid(), exerciseId: e.id, sets: 3 }],
-              logStyle: w.items.length ? w.logStyle : 'sets',
-            });
-            if (w.logStyle === 'sets' || !w.items.length) setIndex(items.length);
+            const added = { id: uid(), exerciseId: e.id, sets: 3 };
+            void patch({ items: [...w.items, added], logStyle: w.items.length ? w.logStyle : 'sets' });
+            if (w.logStyle === 'sets' || !w.items.length) setCurrentId(added.id);
             setSheet(undefined);
+          }}
+        />
+      )}
+
+      {sheet === 'swap' && swapping && (
+        <ExercisePicker
+          title="Swap exercise"
+          onClose={() => setSheet('options')}
+          onPick={async (e) => {
+            const target = items.find((i) => i.id === swapping);
+            setSheet('options');
+            if (!target || target.exerciseId === e.id) return;
+            if (await sureAbout(target, `Swap ${nameOf(target)}?`, 'Swap exercise')) await swapItem(w.id, target.id, e.id);
           }}
         />
       )}

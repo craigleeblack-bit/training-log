@@ -37,6 +37,10 @@ const RULES: [ExerciseCategory, RegExp][] = [
   ['bodyweight', /bodyweight|pull-?ups?|chin-?ups?|push-?ups?|\bdips?\b|\bplanks?\b|bird dog|dead bugs?|ab wheel|l-sit|hyperextension|no load|\bbw\b/],
 ];
 
+/** The section an exercise sits in: the one chosen for it, else a guess. */
+export const categoryOf = (e: { name: string; equipment?: string; category?: ExerciseCategory }): ExerciseCategory =>
+  e.category ?? guessCategory(e.name, e.equipment);
+
 /** Best guess from the name and equipment text. Always editable afterwards. */
 export function guessCategory(name: string, equipment?: string): ExerciseCategory {
   const text = `${name} ${equipment ?? ''}`.toLowerCase();

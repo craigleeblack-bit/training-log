@@ -1311,18 +1311,42 @@ button {
   color: var(--accent-text);
 }
 
+/* One bar per exercise. Each is a button: tap to jump to that exercise. */
 .steps {
   display: flex;
   gap: 5px;
-  padding: 12px 20px 0;
+  padding: 0 20px;
+  margin-bottom: -18px;
+}
+
+.steps button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
 .steps i {
-  flex: 1;
+  display: block;
+  width: 100%;
   height: 5px;
   border-radius: 3px;
   background: var(--line);
   overflow: hidden;
+  transition: height 0.12s;
+}
+
+.steps button.here i {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.steps button:active i {
+  background: var(--edge);
 }
 
 .steps i b {
@@ -1332,8 +1356,115 @@ button {
   background: var(--ink);
 }
 
-.steps i.here b {
+.steps button.here i b {
   background: var(--space, var(--accent));
+}
+
+.sets-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.sets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mini-pm {
+  display: flex;
+  gap: 6px;
+}
+
+.mini-pm button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.mini-pm button:disabled {
+  opacity: 0.35;
+}
+
+.mini-pm .ico {
+  width: 18px;
+  height: 18px;
+}
+
+/* A row with small tools on the right: reorder, swap, remove. */
+.row.tools {
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.row.tools .tick {
+  margin-right: 10px;
+}
+
+.row.tools .title {
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.icon-btn.sm {
+  width: 38px;
+  height: 40px;
+}
+
+.icon-btn.sm .ico {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+}
+
+.icon-btn.danger {
+  color: var(--danger);
+}
+
+.section-title button.add {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 32px;
+  margin: -6px -10px -6px 0;
+  padding: 0;
+}
+
+.section-row .chev {
+  display: grid;
+  transition: transform 0.15s;
+}
+
+.section-row .chev.open {
+  transform: rotate(180deg);
+}
+
+.chips.scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin-inline: -16px;
+  padding-inline: 16px;
+  scrollbar-width: none;
+}
+
+.chips.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.chips.scroll .chip {
+  flex: none;
 }
 
 .s-body {

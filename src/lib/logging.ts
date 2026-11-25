@@ -1,5 +1,5 @@
-import { db, type Exercise, type Measure, type RoutineItem, type SetEntry, type Workout } from '../db/schema';
-import { formatSeconds, hasValue } from '../db/queries';
+import { db, type Exercise, type Measure, type RoutineItem, type SetEntry, type Side, type Workout } from '../db/schema';
+import { formatSeconds, hasValue, loadCount } from '../db/queries';
 
 export type NumKey = 'weight' | 'reps' | 'seconds' | 'metres';
 export type SetValues = Partial<Record<NumKey, number | undefined>>;
@@ -28,7 +28,12 @@ export const RPE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 /** Name of the timer a session starts between sets, so the session can show it in place. */
 export const REST_TIMER = 'Rest';
 
-export const entryId = (workoutId: string, itemId: string, setNo: number): string => `${workoutId}:${itemId}:${setNo}`;
+export const entryId = (workoutId: string, itemId: string, setNo: number, side?: Side): string =>
+  `${workoutId}:${itemId}:${setNo}${side ? `:${side}` : ''}`;
+
+/** How many sets an exercise shows: the plan, or more if more were logged. */
+export const setCount = (item: RoutineItem, entries: SetEntry[]): number =>
+  Math.max(item.sets ?? 1, entries.filter(hasValue).reduce((m, e) => Math.max(m, e.setNo), 0));
 
 export const fmtDuration = (n: number): string => (n >= 60 ? formatSeconds(n) : String(n));
 
@@ -62,8 +67,9 @@ export async function saveSet(
   exercise: Exercise,
   setNo: number,
   changes: SetValues,
+  side?: Side,
 ): Promise<void> {
-  const id = entryId(workout.id, item.id, setNo);
+  const id = entryId(workout.id, item.id, setNo, side);
   await db.transaction('rw', db.sets, async () => {
     const current = await db.sets.get(id);
     const next: SetEntry = {
@@ -73,10 +79,91 @@ export async function saveSet(
       itemId: item.id,
       date: workout.date,
       setNo,
+      ...(side ? { side } : {}),
       ...current,
       ...changes,
     };
+    // A pair of bells is twice the load: keep the count beside the per-bell weight.
+    const count = loadCount(item.load);
+    if (next.weight != null && count) next.count = count;
+    else delete next.count;
     if (hasValue(next)) await db.sets.put(next);
     else await db.sets.delete(id);
+  });
+}
+
+const itemEntries = (workoutId: string, itemId: string) =>
+  db.sets.where('workoutId').equals(workoutId).filter((s) => s.itemId === itemId);
+
+const patchItem = async (workoutId: string, itemId: string, change: (i: RoutineItem) => RoutineItem): Promise<void> => {
+  const w = await db.workouts.get(workoutId);
+  if (w) await db.workouts.update(workoutId, { items: w.items.map((i) => (i.id === itemId ? change(i) : i)) });
+};
+
+/** Give an exercise one more set in this session. */
+export async function addSet(workoutId: string, itemId: string): Promise<void> {
+  await db.transaction('rw', db.workouts, db.sets, async () => {
+    const entries = await itemEntries(workoutId, itemId).toArray();
+    await patchItem(workoutId, itemId, (i) => ({ ...i, sets: setCount(i, entries) + 1 }));
+  });
+}
+
+/**
+ * Take a set out of this session: whatever was logged for it goes, and later sets move up one.
+ * An exercise always keeps at least one set.
+ */
+export async function removeSet(workoutId: string, itemId: string, setNo: number): Promise<void> {
+  await db.transaction('rw', db.workouts, db.sets, async () => {
+    const entries = await itemEntries(workoutId, itemId).toArray();
+    const w = await db.workouts.get(workoutId);
+    const item = w?.items.find((i) => i.id === itemId);
+    if (!item) return;
+    const rows = setCount(item, entries);
+    await db.sets.bulkDelete(entries.filter((e) => e.setNo >= setNo).map((e) => e.id));
+    await db.sets.bulkPut(
+      entries
+        .filter((e) => e.setNo > setNo)
+        .map((e) => ({ ...e, setNo: e.setNo - 1, id: entryId(workoutId, itemId, e.setNo - 1, e.side) })),
+    );
+    await patchItem(workoutId, itemId, (i) => ({
+      ...i,
+      sets: Math.max(1, rows - 1),
+      repsBySet: i.repsBySet?.filter((_, n) => n !== setNo - 1),
+    }));
+  });
+}
+
+/** Take an exercise out of a session, along with anything logged for it. */
+export async function removeItem(workoutId: string, itemId: string): Promise<void> {
+  await db.transaction('rw', db.workouts, db.sets, async () => {
+    await itemEntries(workoutId, itemId).delete();
+    const w = await db.workouts.get(workoutId);
+    if (!w) return;
+    await db.workouts.update(workoutId, {
+      items: w.items.filter((i) => i.id !== itemId),
+      checked: (w.checked ?? []).filter((id) => id !== itemId),
+    });
+  });
+}
+
+/** Do a different exercise in this slot. Sets logged for the old one do not carry over. */
+export async function swapItem(workoutId: string, itemId: string, exerciseId: string): Promise<void> {
+  await db.transaction('rw', db.workouts, db.sets, async () => {
+    await itemEntries(workoutId, itemId).delete();
+    await patchItem(workoutId, itemId, (i) => ({ ...i, exerciseId, note: undefined }));
+  });
+}
+
+/** Move an exercise earlier (-1) or later (+1) in this session. */
+export async function moveItem(workoutId: string, itemId: string, by: 1 | -1): Promise<void> {
+  await db.transaction('rw', db.workouts, async () => {
+    const w = await db.workouts.get(workoutId);
+    if (!w) return;
+    const items = [...w.items];
+    const from = items.findIndex((i) => i.id === itemId);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= items.length) return;
+    [items[from], items[to]] = [items[to], items[from]];
+    await db.workouts.update(workoutId, { items });
   });
 }

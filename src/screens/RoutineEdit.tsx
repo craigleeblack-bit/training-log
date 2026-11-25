@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type RoutineItem } from '../db/schema';
+import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { Chips, Field, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 
 export function itemSummary(item: RoutineItem): string {
@@ -14,23 +15,40 @@ export function itemSummary(item: RoutineItem): string {
 }
 
 /** Pick an existing exercise or create one on the spot. */
-export function ExercisePicker({ onPick, onClose }: { onPick: (e: Exercise) => void; onClose: () => void }) {
+export function ExercisePicker({
+  onPick,
+  onClose,
+  title = 'Add exercise',
+}: {
+  onPick: (e: Exercise) => void;
+  onClose: () => void;
+  title?: string;
+}) {
   const exercises = useLiveQuery(() => db.exercises.orderBy('name').toArray(), []) ?? [];
   const [q, setQ] = useState('');
   const [measure, setMeasure] = useState<Measure>('weight_reps');
+  const [section, setSection] = useState<ExerciseCategory>();
   const needle = q.trim().toLowerCase();
-  const matches = exercises.filter((e) => e.name.toLowerCase().includes(needle));
+  // Typing searches everything; otherwise a section narrows the list.
+  const matches = exercises.filter((e) =>
+    needle ? e.name.toLowerCase().includes(needle) : !section || categoryOf(e) === section,
+  );
   const exact = exercises.some((e) => e.name.toLowerCase() === needle);
+  const sections = CATEGORIES.filter((c) => exercises.some((e) => categoryOf(e) === c));
 
   const create = async () => {
-    const e: Exercise = { id: uid(), name: q.trim(), measure, links: [] };
+    const name = q.trim();
+    const e: Exercise = { id: uid(), name, measure, category: section ?? guessCategory(name), links: [] };
     await db.exercises.add(e);
     onPick(e);
   };
 
   return (
-    <Sheet title="Add exercise" onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <input className="input" autoFocus placeholder="Search or type a new name" value={q} onChange={(e) => setQ(e.target.value)} />
+      {!needle && sections.length > 1 && (
+        <Chips className="scroll" options={sections} value={section} onChange={setSection} label={(c) => CATEGORY_LABEL[c]} />
+      )}
       {needle && !exact && (
         <div className="card stack">
           <span className="sub">Create “{q.trim()}”, measured by:</span>
@@ -50,7 +68,7 @@ export function ExercisePicker({ onPick, onClose }: { onPick: (e: Exercise) => v
           <button key={e.id} className="row" onClick={() => onPick(e)}>
             <div className="grow">
               <div className="title">{e.name}</div>
-              <div className="sub">{MEASURE_LABEL[e.measure]}</div>
+              <div className="sub">{[CATEGORY_LABEL[categoryOf(e)], MEASURE_LABEL[e.measure]].join(' · ')}</div>
             </div>
           </button>
         ))}

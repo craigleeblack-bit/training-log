@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Workout } from '../db/schema';
-import { hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
+import { formatSet, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
 import { isoDate, niceDate, relativeDay } from '../lib/dates';
 import { buildWorkoutContext } from '../lib/claude';
-import { BACK_OPTIONS, COLUMNS, RPE, fmtDuration, saveSet, type NumKey } from '../lib/logging';
+import { BACK_OPTIONS, COLUMNS, RPE, addSet, fmtDuration, removeSet, saveSet, setCount, type NumKey } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
 import { Chips, Field, Icon, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
@@ -23,12 +23,10 @@ function ExerciseCard({
   exercise: Exercise;
   entries: SetEntry[];
 }) {
-  const { toast } = useFeedback();
-  const [extra, setExtra] = useState(0);
+  const { toast, confirm } = useFeedback();
   const last = useLiveQuery(() => lastTime(db, exercise.id, { workoutId: workout.id }), [exercise.id, workout.id]);
   const cols = COLUMNS[exercise.measure];
-  const maxLogged = entries.reduce((m, e) => Math.max(m, e.setNo), 0);
-  const rows = Math.max(item.sets ?? 1, maxLogged) + extra;
+  const rows = setCount(item, entries);
 
   // What a set is expected to be: the same set last time, else last time's final set, else the plan.
   const expected = (setNo: number): Partial<Record<NumKey, number>> => {
@@ -44,7 +42,14 @@ function ExerciseCard({
   const toggle = async (setNo: number) => {
     const current = entries.find((e) => e.setNo === setNo);
     if (current && hasValue(current)) {
-      await db.sets.delete(current.id);
+      // A logged set is a record: un-logging it is asked about, never a slip of the thumb.
+      const ok = await confirm({
+        title: `Clear set ${setNo}?`,
+        body: `${formatSet(current, exercise.measure)} will be removed from this session.`,
+        action: 'Clear set',
+        danger: true,
+      });
+      if (ok) await db.sets.delete(current.id);
       return;
     }
     const exp = expected(setNo);
@@ -55,6 +60,20 @@ function ExerciseCard({
       return;
     }
     await saveSet(workout, item, exercise, setNo, fill);
+  };
+
+  const dropLast = async () => {
+    const entry = entries.find((e) => e.setNo === rows && hasValue(e));
+    if (entry) {
+      const ok = await confirm({
+        title: `Remove set ${rows}?`,
+        body: `It has ${formatSet(entry, exercise.measure)} logged.`,
+        action: 'Remove set',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    await removeSet(workout.id, item.id, rows);
   };
 
   const summary = itemSummary(item);
@@ -112,9 +131,16 @@ function ExerciseCard({
         })}
       </div>
 
-      <button className="btn small ghost" style={{ justifySelf: 'start' }} onClick={() => setExtra((n) => n + 1)}>
-        Add a set
-      </button>
+      <div className="inline">
+        <button className="btn small ghost" onClick={() => addSet(workout.id, item.id)}>
+          Add a set
+        </button>
+        {rows > 1 && (
+          <button className="btn small ghost" onClick={dropLast}>
+            Remove last set
+          </button>
+        )}
+      </div>
     </div>
   );
 }

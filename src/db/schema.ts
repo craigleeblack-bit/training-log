@@ -63,8 +63,6 @@ export interface RoutineItem {
   /** Rest between sets, in seconds. */
   rest?: number;
   note?: string;
-  /** How many implements the load is per: 2 for "2 × 16 kg" kettlebells. */
-  count?: number;
   /** A different target for each set, such as a 1-2-3-4-5 ladder. */
   repsBySet?: number[];
   /** Log left and right separately. */

@@ -62,6 +62,15 @@ export async function workoutLines(db: AppDB, w: Workout): Promise<string[]> {
     );
     if (summary) lines.push(`- ${ex.name}: ${summary}`);
   }
+  // A tick-off session has no sets to show, so say which exercises were done.
+  if (w.logStyle === 'session' && w.items.length) {
+    const ticked = new Set(w.checked ?? []);
+    for (const item of w.items) {
+      if (byExercise.has(item.exerciseId)) continue;
+      const ex = await db.exercises.get(item.exerciseId);
+      if (ex) lines.push(`- [${ticked.has(item.id) ? 'x' : ' '}] ${ex.name}`);
+    }
+  }
   if (w.notes) lines.push(`Notes: ${w.notes}`);
   return lines;
 }

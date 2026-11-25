@@ -6,21 +6,60 @@ import { CHART_LABEL, chartValue, exerciseHistory, summariseSets, type ExerciseS
 import { niceDate } from '../lib/dates';
 import { buildExerciseContext } from '../lib/claude';
 import { useAskClaude } from '../actions';
+import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
+import { cleanUrl, videoFor, videoSearchUrl } from '../lib/videos';
 import { Chips, Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+
+const OPEN_KEY = 'exercise-sections-open';
+
+/** Which sections were left open, on this device. */
+function recallOpen(): ExerciseCategory[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]');
+    return Array.isArray(v) ? (v as ExerciseCategory[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function ExerciseList() {
   const nav = useNavigate();
   const exercises = useLiveQuery(() => db.exercises.orderBy('name').toArray(), []);
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState(recallOpen);
   if (!exercises) return null;
   const needle = q.trim().toLowerCase();
   const shown = exercises.filter((e) => e.name.toLowerCase().includes(needle));
+  const sections = CATEGORIES.map((c) => ({ c, list: exercises.filter((e) => categoryOf(e) === c) })).filter(
+    (s) => s.list.length,
+  );
+
+  const toggle = (c: ExerciseCategory) => {
+    const next = open.includes(c) ? open.filter((x) => x !== c) : [...open, c];
+    setOpen(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode: the sections simply start closed next time */
+    }
+  };
 
   const add = async () => {
-    const e: Exercise = { id: uid(), name: q.trim() || 'New exercise', measure: 'weight_reps', links: [] };
+    const name = q.trim() || 'New exercise';
+    const e: Exercise = { id: uid(), name, measure: 'weight_reps', category: guessCategory(name), links: [] };
     await db.exercises.add(e);
     nav(`/exercise/${e.id}?edit=1`);
   };
+
+  const row = (e: Exercise) => (
+    <Link key={e.id} to={`/exercise/${e.id}`} className="row">
+      <div className="grow">
+        <div className="title">{e.name}</div>
+        <div className="sub">{[e.equipment, MEASURE_LABEL[e.measure]].filter(Boolean).join(' · ')}</div>
+      </div>
+      {Icon.chevRight}
+    </Link>
+  );
 
   return (
     <Page
@@ -33,21 +72,41 @@ export function ExerciseList() {
       }
     >
       <input className="input" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="card flush">
-        {shown.map((e) => (
-          <Link key={e.id} to={`/exercise/${e.id}`} className="row">
-            <div className="grow">
-              <div className="title">{e.name}</div>
-              <div className="sub">{[e.equipment, MEASURE_LABEL[e.measure]].filter(Boolean).join(' · ')}</div>
+      {needle ? (
+        <div className="card flush">
+          {shown.map(row)}
+          {!shown.length && <div className="empty">No matches.</div>}
+        </div>
+      ) : (
+        sections.map(({ c, list }) => {
+          const isOpen = open.includes(c);
+          return (
+            <div key={c} className="card flush">
+              <button className="row section-row" aria-expanded={isOpen} onClick={() => toggle(c)}>
+                <div className="grow">
+                  <div className="title">{CATEGORY_LABEL[c]}</div>
+                </div>
+                <span className="badge">{list.length}</span>
+                <span className={`chev${isOpen ? ' open' : ''}`}>{Icon.chevDown}</span>
+              </button>
+              {isOpen && list.map(row)}
             </div>
-            {Icon.chevRight}
-          </Link>
-        ))}
-        {!shown.length && (
-          <div className="empty">{exercises.length ? 'No matches.' : 'No exercises yet. They appear here as you build routines.'}</div>
-        )}
-      </div>
+          );
+        })
+      )}
+      {!exercises.length && <div className="empty">No exercises yet. They appear here as you build routines.</div>}
     </Page>
+  );
+}
+
+/** Opens the exercise's technique video, or a search for one when none is saved. */
+export function VideoButton({ exercise }: { exercise: Exercise }) {
+  const video = videoFor(exercise);
+  return (
+    <a className="btn" href={video ?? videoSearchUrl(exercise.name)} target="_blank" rel="noopener noreferrer">
+      {Icon.video}
+      {video ? 'Watch video' : 'Find a video'}
+    </a>
   );
 }
 
@@ -97,6 +156,7 @@ function EditForm({ exercise, onClose }: { exercise: Exercise; onClose: () => vo
       ...e,
       name: e.name.trim() || exercise.name,
       equipment: e.equipment?.trim() || undefined,
+      video: cleanUrl(e.video),
       cues: e.cues?.trim() || undefined,
       adjustments: e.adjustments?.trim() || undefined,
       links: e.links
@@ -120,8 +180,25 @@ function EditForm({ exercise, onClose }: { exercise: Exercise; onClose: () => vo
           label={(m) => MEASURE_LABEL[m]}
         />
       </div>
+      <div className="field">
+        <span>Section</span>
+        <Chips
+          options={CATEGORIES}
+          value={categoryOf(e)}
+          onChange={(v) => v && set({ category: v })}
+          label={(c) => CATEGORY_LABEL[c]}
+        />
+      </div>
       <Field label="Equipment">
         <input value={e.equipment ?? ''} placeholder="2 × 16 kg kettlebells" onChange={(ev) => set({ equipment: ev.target.value })} />
+      </Field>
+      <Field label="Video link">
+        <input
+          value={e.video ?? ''}
+          inputMode="url"
+          placeholder={videoFor({ ...e, video: undefined }) ?? 'https://youtube.com/…'}
+          onChange={(ev) => set({ video: ev.target.value })}
+        />
       </Field>
       <Field label="How to perform / cues">
         <textarea value={e.cues ?? ''} onChange={(ev) => set({ cues: ev.target.value })} />
@@ -209,6 +286,7 @@ export function ExerciseDetail() {
       }
     >
       <div className="inline" style={{ marginTop: -8 }}>
+        <span className="badge">{CATEGORY_LABEL[categoryOf(e)]}</span>
         <span className="badge">{MEASURE_LABEL[e.measure]}</span>
         {e.equipment && <span className="badge">{e.equipment}</span>}
         {used.map((r) => (
@@ -239,6 +317,8 @@ export function ExerciseDetail() {
           ))}
         </div>
       )}
+
+      <VideoButton exercise={e} />
 
       <button className="btn" onClick={() => ask(() => buildExerciseContext(db, e))}>
         Ask Claude about this

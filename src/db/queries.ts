@@ -62,12 +62,16 @@ export async function lastTime(
   before?: { workoutId: string },
 ): Promise<LastTime | undefined> {
   const all = await db.sets.where('exerciseId').equals(exerciseId).toArray();
-  const rows = all.filter((s) => s.workoutId !== before?.workoutId && hasValue(s));
-  if (!rows.length) return undefined;
+  const logged = all.filter((s) => s.workoutId !== before?.workoutId && hasValue(s));
+  if (!logged.length) return undefined;
+  // Only finished sessions count: a skipped or half-done one is not a performance to beat.
   const started = new Map<string, number>();
-  for (const id of new Set(rows.map((r) => r.workoutId))) {
-    started.set(id, (await db.workouts.get(id))?.startedAt ?? 0);
+  for (const id of new Set(logged.map((r) => r.workoutId))) {
+    const w = await db.workouts.get(id);
+    if (w?.status === 'done') started.set(id, w.startedAt);
   }
+  const rows = logged.filter((r) => started.has(r.workoutId));
+  if (!rows.length) return undefined;
   rows.sort(
     (a, b) =>
       b.date.localeCompare(a.date) ||
@@ -91,6 +95,13 @@ export function loadNumber(load?: string): number | undefined {
   return m ? Number(m[0]) : undefined;
 }
 
+/** How many implements a load is per: "2 × 16 kg" → 2. Undefined for a single weight. */
+export function loadCount(load?: string): number | undefined {
+  const m = load?.match(/(\d+)\s*[×x]\s*\d/i);
+  const n = m ? Number(m[1]) : undefined;
+  return n && n > 1 && n <= 4 ? n : undefined;
+}
+
 /** Lower bound of a rep range such as "8–12" or "8/12" → 8. */
 export function repsNumber(reps?: string): number | undefined {
   const m = reps?.match(/\d+/);
@@ -105,22 +116,30 @@ export function formatSeconds(total: number): string {
 
 const trim = (n: number): string => String(Math.round(n * 100) / 100);
 
+/** "16 kg", or "2 × 16 kg" for a pair. */
+export const formatWeight = (weight: number, count?: number): string =>
+  `${count && count > 1 ? `${count} × ` : ''}${trim(weight)} kg`;
+
+/** Load moved by one set: weight × implements × reps. Zero when it is not a weighted set. */
+export const setVolume = (s: Pick<SetEntry, 'weight' | 'reps' | 'count'>): number =>
+  (s.weight ?? 0) * (s.count ?? 1) * (s.reps ?? 0);
+
 export function formatSet(s: SetEntry, measure: Measure): string {
   switch (measure) {
     case 'weight_reps':
-      if (s.weight != null && s.reps != null) return `${trim(s.weight)} kg × ${s.reps}`;
+      if (s.weight != null && s.reps != null) return `${formatWeight(s.weight, s.count)} × ${s.reps}`;
       if (s.reps != null) return `${s.reps} reps`;
-      return s.weight != null ? `${trim(s.weight)} kg` : '';
+      return s.weight != null ? formatWeight(s.weight, s.count) : '';
     case 'reps':
       return s.reps != null ? `${s.reps}` : '';
     case 'rounds':
-      return s.reps != null ? `${s.reps} rounds${s.weight != null ? ` @ ${trim(s.weight)} kg` : ''}` : '';
+      return s.reps != null ? `${s.reps} rounds${s.weight != null ? ` @ ${formatWeight(s.weight, s.count)}` : ''}` : '';
     case 'time':
       return s.seconds != null ? formatSeconds(s.seconds) : '';
     case 'distance':
       return [
         s.metres != null ? `${trim(s.metres)} m` : '',
-        s.weight != null ? `${trim(s.weight)} kg` : '',
+        s.weight != null ? formatWeight(s.weight, s.count) : '',
         s.seconds != null ? formatSeconds(s.seconds) : '',
       ]
         .filter(Boolean)
@@ -133,9 +152,9 @@ export function summariseSets(sets: SetEntry[], measure: Measure): string {
   const rows = sets.filter(hasValue);
   if (!rows.length) return '';
   if (measure === 'weight_reps') {
-    const weights = new Set(rows.map((r) => r.weight));
+    const weights = new Set(rows.map((r) => `${r.count ?? 1}:${r.weight}`));
     if (weights.size === 1 && rows[0].weight != null && rows.every((r) => r.reps != null)) {
-      return `${trim(rows[0].weight)} kg × ${rows.map((r) => r.reps).join(', ')}`;
+      return `${formatWeight(rows[0].weight, rows[0].count)} × ${rows.map((r) => r.reps).join(', ')}`;
     }
   }
   return rows.map((r) => formatSet(r, measure)).join(', ');
@@ -178,8 +197,12 @@ export interface ExerciseSession {
   sets: SetEntry[];
 }
 
+/** Every finished session an exercise was logged in, newest first. */
 export async function exerciseHistory(db: AppDB, exercise: Exercise): Promise<ExerciseSession[]> {
-  const rows = (await db.sets.where('exerciseId').equals(exercise.id).toArray()).filter(hasValue);
+  const logged = (await db.sets.where('exerciseId').equals(exercise.id).toArray()).filter(hasValue);
+  const ids = [...new Set(logged.map((r) => r.workoutId))];
+  const done = new Set((await db.workouts.bulkGet(ids)).filter((w) => w?.status === 'done').map((w) => w!.id));
+  const rows = logged.filter((r) => done.has(r.workoutId));
   const byWorkout = new Map<string, ExerciseSession>();
   for (const r of rows) {
     const s = byWorkout.get(r.workoutId) ?? { date: r.date, workoutId: r.workoutId, sets: [] };

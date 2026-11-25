@@ -373,8 +373,8 @@ export default function Home() {
         <>
           <SectionTitle
             action={
-              <button aria-label="New space" onClick={() => setAdding(true)}>
-                New
+              <button className="add" aria-label="New space" onClick={() => setAdding(true)}>
+                {Icon.plus}
               </button>
             }
           >

@@ -335,6 +335,75 @@ export const Icon = {
       <path d="M9.5 5.5 16 12l-6.5 6.5" />
     </svg>
   ),
+  chevUp: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M6 14.5l6-6 6 6" />
+    </svg>
+  ),
+  swap: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4" />
+    </svg>
+  ),
+  trash: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10 10.5v6M14 10.5v6" />
+    </svg>
+  ),
+  play: (
+    <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
+      <path d="M8 5.5v13l11-6.5z" />
+    </svg>
+  ),
+  pause: (
+    <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
+      <path d="M7 5.5h3.5v13H7zM13.5 5.5H17v13h-3.5z" />
+    </svg>
+  ),
+  skipNext: (
+    <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
+      <path d="M6 6v12l9-6zM16.5 6H19v12h-2.5z" />
+    </svg>
+  ),
+  skipPrev: (
+    <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
+      <path d="M18 6v12l-9-6zM5 6h2.5v12H5z" />
+    </svg>
+  ),
+  video: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <rect x="3" y="5.5" width="18" height="13" rx="3" />
+      <path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  pass: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 20h.01M20 14h.01" />
+    </svg>
+  ),
+  scan: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" />
+    </svg>
+  ),
+  route: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <circle cx="6" cy="18" r="2.2" />
+      <circle cx="18" cy="6" r="2.2" />
+      <path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8" />
+    </svg>
+  ),
+  chart: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <path d="M4 20V4M4 20h16M8 16v-4M12 16V8M16 16v-6" />
+    </svg>
+  ),
+  copy: (
+    <svg viewBox="0 0 24 24" {...stroke}>
+      <rect x="8" y="8" width="12" height="12" rx="2.5" />
+      <path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8" />
+    </svg>
+  ),
   more: (
     <svg viewBox="0 0 24 24" className="ico" aria-hidden fill="currentColor">
       <circle cx="5.5" cy="12" r="1.7" />
