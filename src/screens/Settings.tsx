@@ -5,20 +5,10 @@ import { backupFilename, exportBackup, importBackup, validateBackup, type Import
 import { addDays, daysBetween, isoDate, relativeDay } from '../lib/dates';
 import { buildLogMarkdown, CLAUDE_URL_KEY, copyText, normaliseClaudeUrl } from '../lib/claude';
 import { setSetting } from '../actions';
+import { download } from '../lib/download';
 import { Field, Page, SectionTitle, useFeedback } from '../ui';
 
 const LAST_BACKUP_KEY = 'lastBackup';
-
-function download(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export default function Settings() {
   const { toast, confirm } = useFeedback();

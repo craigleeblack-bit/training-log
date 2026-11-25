@@ -10,6 +10,7 @@ import { deleteWorkout, useAskClaude } from '../actions';
 import { Chips, Field, Icon, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import SessionFlow from './SessionFlow';
+import TrackSummary, { GpxImport } from './TrackSummary';
 
 /** Every set of one exercise as an editable table: the record of a finished session. */
 function ExerciseCard({
@@ -229,6 +230,8 @@ export default function WorkoutScreen() {
           </div>
         )}
 
+        <TrackSummary workout={w} />
+
         {w.logStyle === 'sets' ? (
           w.items.map((item) => {
             const exercise = exerciseById.get(item.exerciseId);
@@ -308,6 +311,7 @@ export default function WorkoutScreen() {
           <button className="btn" onClick={() => setPicking(true)}>
             Add exercise
           </button>
+          <GpxImport workout={w} label="Add a GPX route" />
           <button className="btn ghost" onClick={() => ask(() => buildWorkoutContext(db, w))}>
             Ask Claude
           </button>

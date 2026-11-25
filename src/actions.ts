@@ -19,10 +19,12 @@ interface StartArgs {
   routine?: Routine;
   programme?: Programme;
   slot?: ProgrammeSlot;
+  /** What to call a session that comes from neither a routine nor a programme. */
+  title?: string;
 }
 
 /** Start a workout, or resume the unfinished one for the same routine or programme slot. */
-export async function startWorkout({ spaceId, routine, programme, slot }: StartArgs): Promise<string> {
+export async function startWorkout({ spaceId, routine, programme, slot, title }: StartArgs): Promise<string> {
   const key = slot ? slotKey(slot) : undefined;
   const open = await db.workouts.where('status').equals('in_progress').toArray();
   const existing = open.find((w) =>
@@ -44,7 +46,7 @@ export async function startWorkout({ spaceId, routine, programme, slot }: StartA
     routineId: routine?.id,
     programmeId: programme?.id,
     slotKey: key,
-    title: slot?.title ?? routine?.name ?? 'Quick session',
+    title: slot?.title ?? routine?.name ?? title ?? 'Quick session',
     prescription:
       [slot?.prescription ?? routine?.description, target && `Target: ${target}`].filter(Boolean).join('\n\n') ||
       undefined,

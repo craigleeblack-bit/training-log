@@ -3,6 +3,8 @@ import { lazy, Suspense, useEffect } from 'react';
 import { formatSeconds } from './db/queries';
 import { FeedbackProvider, Icon } from './ui';
 import { TimerProvider, useTimer } from './timerContext';
+import { TrackProvider, useDistanceUnit, useTrack } from './trackContext';
+import { formatDistance } from './lib/track';
 import Home from './screens/Home';
 import SpaceScreen from './screens/SpaceScreen';
 import RoutineEdit from './screens/RoutineEdit';
@@ -16,6 +18,25 @@ import History from './screens/History';
 
 // Screens with heavy libraries of their own load when first opened, so the app starts fast.
 const Passes = lazy(() => import('./screens/Passes'));
+const TrackScreen = lazy(() => import('./screens/TrackScreen'));
+
+/** A recording under way follows you round the app, one tap from its screen. */
+function TrackPill() {
+  const t = useTrack();
+  const timer = useTimer();
+  const [unit] = useDistanceUnit();
+  const nav = useNavigate();
+  const { pathname } = useLocation();
+  const rec = t.recording;
+  if (!rec || pathname.startsWith('/track/')) return null;
+  return (
+    <button className={`pill${timer.active && pathname !== '/timer' ? ' second' : ''}`} onClick={() => nav(`/track/${rec.workoutId}`)}>
+      {Icon.route}
+      <span>{rec.paused ? 'Paused' : 'Recording'}</span>
+      <span>{formatDistance(t.metres, unit)}</span>
+    </button>
+  );
+}
 
 /** Four places to be. Every other screen belongs to one of them, which stays lit while you are there. */
 const TABS = [
@@ -73,6 +94,7 @@ export default function App() {
     <HashRouter>
       <FeedbackProvider>
         <TimerProvider>
+          <TrackProvider>
           <ScrollReset />
           <div className="app">
             <Suspense fallback={null}>
@@ -91,12 +113,15 @@ export default function App() {
               <Route path="/note/:id" element={<NoteScreen />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/pass" element={<Passes />} />
+              <Route path="/track/:id" element={<TrackScreen />} />
               <Route path="*" element={<Home />} />
             </Routes>
             </Suspense>
           </div>
           <TimerPill />
+          <TrackPill />
           <TabBar />
+          </TrackProvider>
         </TimerProvider>
       </FeedbackProvider>
     </HashRouter>

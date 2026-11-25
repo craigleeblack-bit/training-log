@@ -374,6 +374,16 @@ export default function Home() {
         </div>
       )}
 
+      {spaces.length > 0 && (
+        <Link to="/track/new" className="next-up">
+          <span>
+            <small>Outdoors</small>
+            <b>Track a run, walk or ride</b>
+          </span>
+          {Icon.route}
+        </Link>
+      )}
+
       {spaces.length > 0 ? (
         <>
           <SectionTitle

@@ -29,6 +29,7 @@ import { useTimer } from '../timerContext';
 import { Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import { VideoButton } from './Exercises';
+import TrackSummary from './TrackSummary';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -687,6 +688,8 @@ export default function SessionFlow({
               )}
             </div>
 
+            <TrackSummary workout={w} />
+
             <div className="ask">
               <h2>How hard was it?</h2>
               <Chips
@@ -830,6 +833,12 @@ export default function SessionFlow({
             <button className="btn" onClick={() => ask(() => buildWorkoutContext(db, w))}>
               Ask Claude
             </button>
+            <Link
+              className="btn"
+              to={`/track/${w.id}${focus && exercise && item && ['distance', 'time'].includes(exercise.measure) ? `?item=${item.id}` : ''}`}
+            >
+              Track with GPS
+            </Link>
             {w.programmeId && (
               <button className="btn" onClick={() => finish('skipped')}>
                 Skip session
