@@ -1,14 +1,25 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, MEASURE_LABEL, uid, type Exercise, type Link as ExLink, type Measure } from '../db/schema';
-import { CHART_LABEL, chartValue, exerciseHistory, summariseSets, type ExerciseSession } from '../db/queries';
+import { db, MEASURE_LABEL, uid, type ComplexPart, type Exercise, type Link as ExLink, type Measure } from '../db/schema';
+import {
+  CHART_LABEL,
+  chartValue,
+  complexTotals,
+  describeParts,
+  exerciseHistory,
+  summariseSets,
+  totalRounds,
+  type ExerciseSession,
+} from '../db/queries';
 import { niceDate } from '../lib/dates';
 import { buildExerciseContext } from '../lib/claude';
 import { useAskClaude } from '../actions';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { cleanUrl, videoFor, videoSearchUrl } from '../lib/videos';
 import { Chips, Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+
+const nonEmpty = <T,>(list: T[]): T[] | undefined => (list.length ? list : undefined);
 
 const OPEN_KEY = 'exercise-sections-open';
 
@@ -151,12 +162,16 @@ function EditForm({ exercise, onClose }: { exercise: Exercise; onClose: () => vo
   const set = (changes: Partial<Exercise>) => setE((prev) => ({ ...prev, ...changes }));
   const setLink = (i: number, changes: Partial<ExLink>) =>
     set({ links: e.links.map((l, j) => (j === i ? { ...l, ...changes } : l)) });
+  const setPart = (i: number, changes: Partial<ComplexPart>) =>
+    set({ parts: (e.parts ?? []).map((p, j) => (j === i ? { ...p, ...changes } : p)) });
   const save = async () => {
     await db.exercises.put({
       ...e,
       name: e.name.trim() || exercise.name,
       equipment: e.equipment?.trim() || undefined,
       video: cleanUrl(e.video),
+      // A recipe only means something for an exercise counted in rounds; empty rows are dropped.
+      parts: e.measure === 'rounds' ? nonEmpty((e.parts ?? []).map((p) => ({ ...p, name: p.name.trim() })).filter((p) => p.name && p.reps > 0)) : undefined,
       cues: e.cues?.trim() || undefined,
       adjustments: e.adjustments?.trim() || undefined,
       links: e.links
@@ -189,6 +204,35 @@ function EditForm({ exercise, onClose }: { exercise: Exercise; onClose: () => vo
           label={(c) => CATEGORY_LABEL[c]}
         />
       </div>
+      <label className="inline">
+        <input type="checkbox" checked={!!e.unilateral} onChange={(ev) => set({ unilateral: ev.target.checked || undefined })} />
+        Done one side at a time (log left and right)
+      </label>
+      {e.measure === 'rounds' && (
+        <div className="field">
+          <span>What one round is made of</span>
+          {(e.parts ?? []).map((p, i) => (
+            <div key={i} className="part-row">
+              <input
+                className="input"
+                inputMode="numeric"
+                aria-label="Reps"
+                value={p.reps || ''}
+                placeholder="2"
+                onChange={(ev) => setPart(i, { reps: Math.max(0, Math.round(Number(ev.target.value) || 0)) })}
+              />
+              <input className="input" aria-label="Movement" value={p.name} placeholder="Double clean" onChange={(ev) => setPart(i, { name: ev.target.value })} />
+            </div>
+          ))}
+          <button
+            className="btn small ghost"
+            style={{ justifySelf: 'start' }}
+            onClick={() => set({ parts: [...(e.parts ?? []), { name: '', reps: 1 }] })}
+          >
+            + Add a movement
+          </button>
+        </div>
+      )}
       <Field label="Equipment">
         <input value={e.equipment ?? ''} placeholder="2 × 16 kg kettlebells" onChange={(ev) => set({ equipment: ev.target.value })} />
       </Field>
@@ -296,8 +340,14 @@ export function ExerciseDetail() {
         ))}
       </div>
 
-      {(e.cues || e.adjustments || e.links.length > 0) && (
+      {(e.cues || e.adjustments || e.links.length > 0 || e.parts?.length) && (
         <div className="card stack">
+          {e.parts?.length ? (
+            <div>
+              <div className="sub" style={{ fontWeight: 600 }}>One round</div>
+              <p>{describeParts(e.parts)}</p>
+            </div>
+          ) : null}
           {e.cues && (
             <div>
               <div className="sub" style={{ fontWeight: 600 }}>How to perform</div>
@@ -332,7 +382,10 @@ export function ExerciseDetail() {
           <Link key={h.workoutId} to={`/workout/${h.workoutId}`} className="row">
             <div className="grow">
               <div className="title">{summariseSets(h.sets, e.measure)}</div>
-              <div className="sub">{niceDate(h.date)}</div>
+              <div className="sub">
+                {niceDate(h.date)}
+                {e.parts?.length && totalRounds(h.sets) ? ` · ${complexTotals(e.parts, totalRounds(h.sets))}` : ''}
+              </div>
             </div>
             {Icon.chevRight}
           </Link>

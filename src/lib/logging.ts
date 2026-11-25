@@ -35,6 +35,66 @@ export const entryId = (workoutId: string, itemId: string, setNo: number, side?:
 export const setCount = (item: RoutineItem, entries: SetEntry[]): number =>
   Math.max(item.sets ?? 1, entries.filter(hasValue).reduce((m, e) => Math.max(m, e.setNo), 0));
 
+export const SIDES: readonly Side[] = ['L', 'R'];
+
+/** The sides a set of this exercise is logged for: left and right, or just the one entry. */
+export const sidesOf = (item: Pick<RoutineItem, 'eachSide'>): (Side | undefined)[] => (item.eachSide ? ['L', 'R'] : [undefined]);
+
+/** How many sets are fully logged: both sides, where sides are logged apart. */
+export function setsDone(item: RoutineItem, entries: SetEntry[]): number {
+  const logged = entries.filter(hasValue);
+  const sides = sidesOf(item);
+  let n = 0;
+  for (let setNo = 1; setNo <= setCount(item, entries); setNo++) {
+    if (sides.every((side) => logged.some((e) => e.setNo === setNo && e.side === side))) n++;
+  }
+  return n;
+}
+
+/**
+ * Keep supersets honest after exercises are moved, added or removed: a group is a run of
+ * neighbouring exercises, and an exercise left on its own is no longer in one.
+ */
+export function normaliseGroups(items: RoutineItem[]): RoutineItem[] {
+  const out = items.map((i) => ({ ...i }));
+  let run = 0;
+  for (let k = 0; k < out.length; k++) {
+    const joinsPrev = k > 0 && !!items[k].group && items[k].group === items[k - 1].group;
+    if (!joinsPrev) run = k;
+    const joinsNext = k + 1 < out.length && !!items[k].group && items[k].group === items[k + 1].group;
+    // Name each run after where it starts, so two runs that once shared an id come apart.
+    if (joinsPrev || joinsNext) out[k].group = `g${run}`;
+    else delete out[k].group;
+  }
+  return out;
+}
+
+/** Make an exercise a superset with the one above it, or split it off again. */
+export function linkAbove(items: RoutineItem[], index: number, on: boolean): RoutineItem[] {
+  if (index <= 0 || index >= items.length) return items;
+  const out = items.map((i) => ({ ...i }));
+  if (on) {
+    const g = out[index - 1].group ?? `new${index}`;
+    out[index - 1].group = g;
+    // Bring along anything already grouped with this exercise below it.
+    const old = out[index].group;
+    for (let k = index; k < out.length && (k === index || (!!old && out[k].group === old)); k++) out[k].group = g;
+  } else {
+    const old = out[index].group;
+    for (let k = index; k < out.length && out[k].group === old; k++) out[k].group = `split${index}`;
+  }
+  return normaliseGroups(out);
+}
+
+/** "1, 2, 3, 4, 5" → [1, 2, 3, 4, 5]. Anything that is not a list of numbers gives undefined. */
+export function parseLadder(text: string): number[] | undefined {
+  const nums = text
+    .split(/[\s,/\-–]+/)
+    .filter(Boolean)
+    .map(Number);
+  return nums.length > 1 && nums.every((n) => Number.isFinite(n) && n > 0) ? nums : undefined;
+}
+
 export const fmtDuration = (n: number): string => (n >= 60 ? formatSeconds(n) : String(n));
 
 const trim = (n: number): string => String(Math.round(n * 100) / 100);
@@ -140,7 +200,7 @@ export async function removeItem(workoutId: string, itemId: string): Promise<voi
     const w = await db.workouts.get(workoutId);
     if (!w) return;
     await db.workouts.update(workoutId, {
-      items: w.items.filter((i) => i.id !== itemId),
+      items: normaliseGroups(w.items.filter((i) => i.id !== itemId)),
       checked: (w.checked ?? []).filter((id) => id !== itemId),
     });
   });
@@ -164,6 +224,6 @@ export async function moveItem(workoutId: string, itemId: string, by: 1 | -1): P
     const to = from + by;
     if (from < 0 || to < 0 || to >= items.length) return;
     [items[from], items[to]] = [items[to], items[from]];
-    await db.workouts.update(workoutId, { items });
+    await db.workouts.update(workoutId, { items: normaliseGroups(items) });
   });
 }

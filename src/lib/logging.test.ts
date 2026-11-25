@@ -1,9 +1,20 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, TABLES, type Exercise, type RoutineItem, type Workout } from '../db/schema';
-import { exerciseHistory, lastTime, loadCount, setVolume, summariseSets } from '../db/queries';
+import { complexTotals, describeParts, exerciseHistory, lastTime, loadCount, setVolume, summariseSets } from '../db/queries';
 import { workoutLines } from './claude';
-import { addSet, moveItem, removeItem, removeSet, saveSet, swapItem } from './logging';
+import {
+  addSet,
+  linkAbove,
+  moveItem,
+  normaliseGroups,
+  parseLadder,
+  removeItem,
+  removeSet,
+  saveSet,
+  setsDone,
+  swapItem,
+} from './logging';
 
 const press: Exercise = { id: 'press', name: 'Press', measure: 'weight_reps', links: [] };
 const squat: Exercise = { id: 'squat', name: 'Squat', measure: 'weight_reps', links: [] };
@@ -72,6 +83,56 @@ describe('sets in a session', () => {
     await removeItem('w1', 'i2');
     expect((await db.workouts.get('w1'))?.items.map((i) => i.id)).toEqual(['i1']);
     expect(await db.sets.count()).toBe(0);
+  });
+});
+
+describe('workout structures', () => {
+  const items = (groups: (string | undefined)[]): RoutineItem[] =>
+    groups.map((group, n) => ({ id: `i${n}`, exerciseId: 'press', ...(group ? { group } : {}) }));
+  const groupsOf = (list: RoutineItem[]) => list.map((i) => i.group);
+
+  it('keeps a superset to neighbours, and drops a group of one', () => {
+    expect(groupsOf(normaliseGroups(items(['a', 'a', undefined, 'a'])))).toEqual(['g0', 'g0', undefined, undefined]);
+    expect(groupsOf(normaliseGroups(items(['a', 'b', 'b'])))).toEqual([undefined, 'g1', 'g1']);
+  });
+
+  it('links an exercise to the one above and splits it off again', () => {
+    const linked = linkAbove(items([undefined, undefined, undefined]), 1, true);
+    expect(groupsOf(linked)).toEqual(['g0', 'g0', undefined]);
+    const three = linkAbove(linked, 2, true);
+    expect(groupsOf(three)).toEqual(['g0', 'g0', 'g0']);
+    expect(groupsOf(linkAbove(three, 1, false))).toEqual([undefined, 'g1', 'g1']);
+    expect(groupsOf(linkAbove(linked, 1, false))).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('reads a ladder, and nothing else as one', () => {
+    expect(parseLadder('1, 2, 3, 4, 5')).toEqual([1, 2, 3, 4, 5]);
+    expect(parseLadder('5-3-2')).toEqual([5, 3, 2]);
+    expect(parseLadder('8')).toBeUndefined();
+    expect(parseLadder('light, heavy')).toBeUndefined();
+  });
+
+  it('counts a set as done only when both sides are, and summarises left / right', async () => {
+    const sided: RoutineItem = { ...item, load: '16 kg', eachSide: true, sets: 2 };
+    await saveSet(workout(), sided, press, 1, { weight: 16, reps: 8 }, 'L');
+    let entries = await db.sets.toArray();
+    expect(setsDone(sided, entries)).toBe(0);
+    await saveSet(workout(), sided, press, 1, { weight: 16, reps: 7 }, 'R');
+    await saveSet(workout(), sided, press, 2, { weight: 16, reps: 8 }, 'L');
+    entries = await db.sets.toArray();
+    expect(setsDone(sided, entries)).toBe(1);
+    expect(entries.map((e) => e.id).sort()).toEqual(['w1:i1:1:L', 'w1:i1:1:R', 'w1:i1:2:L']);
+    expect(summariseSets(entries, 'weight_reps')).toBe('16 kg × 8/7, 8/– (L/R)');
+  });
+
+  it('adds up what the rounds of a complex come to', () => {
+    const parts = [
+      { name: 'Double clean', reps: 2 },
+      { name: 'Double press', reps: 1 },
+      { name: 'Front squat', reps: 3 },
+    ];
+    expect(describeParts(parts)).toBe('2 double clean, 1 double press, 3 front squat');
+    expect(complexTotals(parts, 7)).toBe('14 double clean, 7 double press, 21 front squat');
   });
 });
 

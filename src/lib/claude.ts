@@ -1,5 +1,5 @@
 import type { AppDB, Exercise, Workout } from '../db/schema';
-import { exerciseHistory, summariseSets } from '../db/queries';
+import { complexTotals, exerciseHistory, summariseSets, totalRounds } from '../db/queries';
 import { niceDate } from './dates';
 
 export const CLAUDE_URL_KEY = 'claudeProjectUrl';
@@ -60,7 +60,9 @@ export async function workoutLines(db: AppDB, w: Workout): Promise<string[]> {
       rows.sort((a, b) => a.setNo - b.setNo),
       ex.measure,
     );
-    if (summary) lines.push(`- ${ex.name}: ${summary}`);
+    // For a complex, spell out what the rounds add up to in each movement.
+    const rounds = ex.parts?.length ? totalRounds(rows) : 0;
+    if (summary) lines.push(`- ${ex.name}: ${summary}${rounds && ex.parts ? ` (${complexTotals(ex.parts, rounds)})` : ''}`);
   }
   // A tick-off session has no sets to show, so say which exercises were done.
   if (w.logStyle === 'session' && w.items.length) {

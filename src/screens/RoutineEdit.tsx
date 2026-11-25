@@ -3,13 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type RoutineItem } from '../db/schema';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
+import { linkAbove, normaliseGroups, parseLadder } from '../lib/logging';
 import { Chips, Field, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 
 export function itemSummary(item: RoutineItem): string {
   const parts: string[] = [];
-  if (item.sets && item.reps) parts.push(`${item.sets} × ${item.reps}`);
+  if (item.repsBySet?.length) parts.push(`${item.repsBySet.length} sets: ${item.repsBySet.join('-')}`);
+  else if (item.sets && item.reps) parts.push(`${item.sets} × ${item.reps}`);
   else if (item.sets) parts.push(`${item.sets} set${item.sets === 1 ? '' : 's'}`);
   else if (item.reps) parts.push(item.reps);
+  if (item.eachSide) parts.push('each side');
   if (item.load) parts.push(item.load);
   return parts.join(' · ');
 }
@@ -84,18 +87,28 @@ function ItemForm({
   onSave,
   onDelete,
   onClose,
+  above,
+  isLinked,
 }: {
   item: RoutineItem;
   name: string;
-  onSave: (i: RoutineItem) => void;
+  /** Already a superset with the exercise above. */
+  isLinked: boolean;
+  onSave: (i: RoutineItem, linkAbove: boolean) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** The exercise above this one, to pair with as a superset. Undefined for the first. */
+  above?: string;
 }) {
   const [sets, setSets] = useState(item.sets != null ? String(item.sets) : '');
   const [reps, setReps] = useState(item.reps ?? '');
   const [load, setLoad] = useState(item.load ?? '');
   const [rest, setRest] = useState(item.rest != null ? String(item.rest) : '');
   const [note, setNote] = useState(item.note ?? '');
+  const [ladder, setLadder] = useState(item.repsBySet?.join(', ') ?? '');
+  const [eachSide, setEachSide] = useState(!!item.eachSide);
+  const [linked, setLinked] = useState(isLinked);
+  const perSet = parseLadder(ladder);
   return (
     <Sheet title={name} onClose={onClose}>
       <div className="grid-2">
@@ -112,6 +125,20 @@ function ItemForm({
           <input inputMode="numeric" value={rest} placeholder="90" onChange={(e) => setRest(e.target.value)} />
         </Field>
       </div>
+      <Field label="Different reps each set (optional)">
+        <input value={ladder} placeholder="A ladder: 1, 2, 3, 4, 5" onChange={(e) => setLadder(e.target.value)} />
+      </Field>
+      {perSet && <p className="sub">{perSet.length} sets, with these as the target for each.</p>}
+      <label className="inline">
+        <input type="checkbox" checked={eachSide} onChange={(e) => setEachSide(e.target.checked)} />
+        Log left and right separately
+      </label>
+      {above && (
+        <label className="inline">
+          <input type="checkbox" checked={linked} onChange={(e) => setLinked(e.target.checked)} />
+          Superset with {above}: one set of each, then rest
+        </label>
+      )}
       <Field label="Note for this routine">
         <textarea value={note} placeholder="Cue or reminder shown while logging" onChange={(e) => setNote(e.target.value)} />
       </Field>
@@ -122,14 +149,19 @@ function ItemForm({
         <button
           className="btn primary"
           onClick={() =>
-            onSave({
-              ...item,
-              sets: parseNumber(sets),
-              reps: reps.trim() || undefined,
-              load: load.trim() || undefined,
-              rest: parseNumber(rest),
-              note: note.trim() || undefined,
-            })
+            onSave(
+              {
+                ...item,
+                sets: perSet ? perSet.length : parseNumber(sets),
+                reps: reps.trim() || undefined,
+                load: load.trim() || undefined,
+                rest: parseNumber(rest),
+                note: note.trim() || undefined,
+                repsBySet: perSet,
+                eachSide: eachSide || undefined,
+              },
+              linked,
+            )
           }
         >
           Save
@@ -160,7 +192,7 @@ export default function RoutineEdit() {
 
   const nameOf = (exerciseId: string) => exercises.find((e) => e.id === exerciseId)?.name ?? 'Unknown exercise';
   const patch = (changes: Partial<Routine>) => db.routines.update(id, changes);
-  const setItems = (items: RoutineItem[]) => patch({ items });
+  const setItems = (items: RoutineItem[]) => patch({ items: normaliseGroups(items) });
 
   const move = (index: number, by: number) => {
     const items = [...routine.items];
@@ -183,7 +215,8 @@ export default function RoutineEdit() {
     }
   };
 
-  const current = routine.items.find((i) => i.id === editing);
+  const currentIndex = routine.items.findIndex((i) => i.id === editing);
+  const current = routine.items[currentIndex];
 
   return (
     <Page title="Edit routine" back>
@@ -227,10 +260,12 @@ export default function RoutineEdit() {
       <SectionTitle action={<button onClick={() => setPicking(true)}>+ Add</button>}>Exercises</SectionTitle>
       <div className="card flush">
         {routine.items.map((item, i) => (
-          <div key={item.id} className="row">
+          <div key={item.id} className={`row${item.group ? ' grouped' : ''}`}>
             <button className="grow" style={{ border: 0, background: 'none', textAlign: 'left', padding: 0 }} onClick={() => setEditing(item.id)}>
               <div className="title">{nameOf(item.exerciseId)}</div>
-              <div className="sub">{itemSummary(item) || 'Tap to set sets, reps and load'}</div>
+              <div className="sub">
+                {[item.group && 'Superset', itemSummary(item)].filter(Boolean).join(' · ') || 'Tap to set sets, reps and load'}
+              </div>
             </button>
             <button className="icon-btn" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
               ↑
@@ -251,7 +286,7 @@ export default function RoutineEdit() {
         <ExercisePicker
           onClose={() => setPicking(false)}
           onPick={(e) => {
-            const item: RoutineItem = { id: uid(), exerciseId: e.id, sets: 3 };
+            const item: RoutineItem = { id: uid(), exerciseId: e.id, sets: 3, eachSide: e.unilateral || undefined };
             void setItems([...routine.items, item]);
             setPicking(false);
             setEditing(item.id);
@@ -263,13 +298,17 @@ export default function RoutineEdit() {
         <ItemForm
           item={current}
           name={nameOf(current.exerciseId)}
+          above={currentIndex > 0 ? nameOf(routine.items[currentIndex - 1].exerciseId) : undefined}
+          isLinked={currentIndex > 0 && !!current.group && current.group === routine.items[currentIndex - 1].group}
           onClose={() => setEditing(undefined)}
           onDelete={() => {
             void setItems(routine.items.filter((i) => i.id !== current.id));
             setEditing(undefined);
           }}
-          onSave={(next) => {
-            void setItems(routine.items.map((i) => (i.id === next.id ? next : i)));
+          onSave={(next, link) => {
+            const items = routine.items.map((i) => (i.id === next.id ? next : i));
+            const was = currentIndex > 0 && !!current.group && current.group === routine.items[currentIndex - 1].group;
+            void setItems(link === was ? items : linkAbove(items, currentIndex, link));
             setEditing(undefined);
           }}
         />

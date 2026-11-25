@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Space, type Workout } from '../db/schema';
-import { formatSeconds, hasValue, lastTime, loadNumber, repsNumber } from '../db/queries';
+import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Space, type Workout } from '../db/schema';
+import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber } from '../db/queries';
 import { isoDate, niceDate } from '../lib/dates';
 import { countdownPhases } from '../lib/timer';
 import { buildWorkoutContext } from '../lib/claude';
@@ -19,6 +19,9 @@ import {
   removeSet,
   saveSet,
   setCount,
+  setsDone,
+  SIDES,
+  sidesOf,
   swapItem,
   type Column,
   type NumKey,
@@ -34,6 +37,14 @@ import TrackSummary from './TrackSummary';
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const loggedSets = (entries: SetEntry[]) => entries.filter(hasValue);
+
+/** One thing to log: a set, or one side of a set. */
+interface Slot {
+  setNo: number;
+  side?: Side;
+}
+
+const keyOf = (s: Slot): string => `${s.setNo}${s.side ?? ''}`;
 
 /* ── One big number with − and + under it ─────────────────── */
 
@@ -93,6 +104,9 @@ function FocusExercise({
   onWrap,
   onAddSet,
   onOptions,
+  onSetDone,
+  groupNote,
+  nextNote,
 }: {
   workout: Workout;
   item: RoutineItem;
@@ -103,56 +117,89 @@ function FocusExercise({
   onWrap: () => void;
   onAddSet: () => void;
   onOptions: () => void;
+  /** A whole set has just been logged. `more` says whether this exercise has sets left. */
+  onSetDone: (more: boolean) => void;
+  /** "Superset 1 of 2", when this exercise is done in turn with others. */
+  groupNote?: string;
+  /** What follows a logged set: "then rest 1:30", "then Pull-ups". */
+  nextNote: string;
 }) {
   const timer = useTimer();
   const { toast, confirm } = useFeedback();
-  const [picked, setPicked] = useState<number>();
-  const [draft, setDraft] = useState<Record<number, SetValues>>({});
+  const [picked, setPicked] = useState<Slot>();
+  const [draft, setDraft] = useState<Record<string, SetValues>>({});
   const [reading, setReading] = useState<'cues' | 'notes'>();
   const last = useLiveQuery(() => lastTime(db, exercise.id, { workoutId: workout.id }), [exercise.id, workout.id]);
 
   const cols = COLUMNS[exercise.measure];
   const rows = setCount(item, entries);
   const range = Array.from({ length: rows }, (_, i) => i + 1);
-  const logged = (setNo: number) => entries.find((e) => e.setNo === setNo && hasValue(e));
-  const firstOpen = range.find((n) => !logged(n));
-  /** The set the steppers are editing; undefined once every set is logged. */
-  const current = picked ?? firstOpen;
+  // One slot to fill per set, or two when left and right are logged apart.
+  const sides = sidesOf(item);
+  const slots: Slot[] = range.flatMap((setNo) => sides.map((side) => ({ setNo, side })));
+  const slotLogged = (s: Slot) => entries.find((e) => e.setNo === s.setNo && e.side === s.side && hasValue(e));
+  /** A set is logged once every side of it is. Gives back its first entry. */
+  const logged = (setNo: number) =>
+    sides.every((side) => slotLogged({ setNo, side })) ? slotLogged({ setNo, side: sides[0] }) : undefined;
+  const firstOpen = slots.find((s) => !slotLogged(s));
+  /** The slot the steppers are editing; undefined once every set is logged. */
+  const slot = picked ?? firstOpen;
+  const current = slot?.setNo;
+  const slotKey = slot ? keyOf(slot) : '';
 
-  // What a set is expected to be: the same set last time, else last time's final set, else the plan.
-  const expected = (setNo: number): SetValues => {
-    const prev = last?.sets.find((s) => s.setNo === setNo) ?? last?.sets[last.sets.length - 1];
+  // What a set is expected to be: the plan's own target for that set if it has one (a ladder),
+  // else the same set last time, else last time's final set, else the plan.
+  const expected = (s: Slot): SetValues => {
+    const prev =
+      last?.sets.find((p) => p.setNo === s.setNo && p.side === s.side) ??
+      last?.sets.find((p) => p.setNo === s.setNo) ??
+      last?.sets[last.sets.length - 1];
     return {
       weight: prev?.weight ?? loadNumber(item.load),
-      reps: prev?.reps ?? repsNumber(item.reps),
+      reps: item.repsBySet?.[s.setNo - 1] ?? prev?.reps ?? repsNumber(item.reps),
       seconds: prev?.seconds,
       metres: prev?.metres,
     };
   };
 
-  const valuesFor = (setNo: number, edits: SetValues | undefined): SetValues => {
-    const stored = logged(setNo);
-    const base = stored ?? expected(setNo);
+  const valuesFor = (s: Slot, edits: SetValues | undefined): SetValues => {
+    const base = slotLogged(s) ?? expected(s);
     const out: SetValues = {};
     for (const c of cols) out[c.key] = base[c.key];
     return { ...out, ...edits };
   };
-  const vals = current != null ? valuesFor(current, draft[current]) : {};
+  const vals = slot ? valuesFor(slot, draft[slotKey]) : {};
 
   const type = (key: NumKey, v: number | undefined) => {
-    if (current == null) return;
-    setDraft((d) => ({ ...d, [current]: { ...d[current], [key]: v } }));
+    if (!slot) return;
+    setDraft((d) => ({ ...d, [slotKey]: { ...d[slotKey], [key]: v } }));
   };
   const bump = (key: NumKey, by: number) => {
-    if (current == null) return;
+    if (!slot) return;
     // Read the latest draft inside the update, so a value typed a moment ago is the starting point.
     setDraft((d) => {
-      const from = valuesFor(current, d[current])[key] ?? 0;
-      return { ...d, [current]: { ...d[current], [key]: Math.max(0, round2(from + by)) } };
+      const from = valuesFor(slot, d[slotKey])[key] ?? 0;
+      return { ...d, [slotKey]: { ...d[slotKey], [key]: Math.max(0, round2(from + by)) } };
     });
   };
 
-  const editing = current != null && !!logged(current);
+  const editing = !!slot && !!slotLogged(slot);
+  /** With sides, the rest comes after the second one. */
+  const closesSet = !!slot && sides.every((side) => side === slot.side || slotLogged({ setNo: slot.setNo, side }));
+  const sideWord = slot?.side === 'L' ? 'left' : slot?.side === 'R' ? 'right' : '';
+
+  /** What a set tile shows: one value, or left / right. */
+  const tileText = (setNo: number): string => {
+    if (!item.eachSide) {
+      const e = slotLogged({ setNo });
+      return e ? compactSet(e, exercise.measure) : '';
+    }
+    const side = (s: Side) => {
+      const e = slotLogged({ setNo, side: s });
+      return e ? String(e.reps ?? e.seconds ?? e.metres ?? e.weight ?? '') : '–';
+    };
+    return `${side('L')} / ${side('R')}`;
+  };
 
   // With a long row of sets, keep the one being logged in view.
   const nowRef = useRef<HTMLButtonElement>(null);
@@ -161,33 +208,28 @@ function FocusExercise({
   }, [current]);
 
   const log = async () => {
-    if (current == null) return;
+    if (!slot) return;
     if (!cols.some((c) => vals[c.key] != null)) {
       toast('Enter a value first.');
       return;
     }
     const fill: SetValues = {};
     for (const c of cols) fill[c.key] = vals[c.key];
-    await saveSet(workout, item, exercise, current, fill);
+    await saveSet(workout, item, exercise, slot.setNo, fill, slot.side);
     setDraft((d) => {
       const next = { ...d };
-      delete next[current];
+      delete next[slotKey];
       return next;
     });
     setPicked(undefined);
-    if (editing) return;
-    const more = range.some((n) => n !== current && !logged(n));
-    if (!more && isLast) {
-      onWrap();
-      return;
-    }
-    if (item.rest) timer.start(countdownPhases(item.rest), REST_TIMER);
-    if (!more) onNext();
+    // An edit changes nothing else; a first side is followed at once by the other.
+    if (editing || !closesSet) return;
+    onSetDone(slots.some((s) => s.setNo !== slot.setNo && !slotLogged(s)));
   };
 
   /** Take a set out altogether; the sets after it move up. */
   const remove = async (setNo: number) => {
-    const entry = logged(setNo);
+    const entry = sides.map((side) => slotLogged({ setNo, side })).find(Boolean);
     if (entry && setNo !== current) {
       const ok = await confirm({
         title: `Remove set ${setNo}?`,
@@ -208,7 +250,7 @@ function FocusExercise({
   if (resting && pos) {
     const total = pos.phase?.seconds ?? 1;
     const ring = 2 * Math.PI * 126;
-    const doneHere = loggedSets(entries).length;
+    const doneHere = setsDone(item, entries);
     return (
       <>
         <div className="s-body rest">
@@ -274,6 +316,8 @@ function FocusExercise({
             <div>
               <h1>{exercise.name}</h1>
               {summary && <p>{summary}</p>}
+              {groupNote && <p className="group-note">{groupNote}</p>}
+              {exercise.parts?.length ? <p>Each round: {describeParts(exercise.parts)}</p> : null}
             </div>
             <button className="icon-btn boxed" aria-label="Session options" onClick={onOptions}>
               {Icon.more}
@@ -298,7 +342,7 @@ function FocusExercise({
         <div className="sets-wrap">
           <div className="sets-head">
             <span>
-              {loggedSets(entries).length} of {rows} sets
+              {setsDone(item, entries)} of {rows} sets
             </span>
             <div className="mini-pm">
               <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
@@ -314,6 +358,7 @@ function FocusExercise({
             const entry = logged(n);
             const before = last?.sets.find((s) => s.setNo === n);
             const now = n === current;
+            const target = item.repsBySet?.[n - 1];
             return (
               <button
                 key={n}
@@ -321,18 +366,20 @@ function FocusExercise({
                 type="button"
                 className={`set ${now ? 'now' : entry ? 'done' : 'next'}`}
                 aria-pressed={now}
-                aria-label={`Set ${n}${entry ? `, logged ${compactSet(entry, exercise.measure)}` : ''}`}
-                onClick={() => setPicked(n)}
+                aria-label={`Set ${n}${entry ? `, logged ${tileText(n)}` : ''}`}
+                onClick={() => setPicked(slots.find((s) => s.setNo === n && !slotLogged(s)) ?? { setNo: n, side: sides[0] })}
               >
                 <span className="set-no">Set {n}</span>
                 <span className="set-chip">
                   {now ? (
-                    entry ? 'Editing' : 'Now'
+                    editing ? 'Editing' : slot?.side ? (slot.side === 'L' ? 'Left' : 'Right') : 'Now'
                   ) : entry ? (
                     <>
                       {Icon.check}
-                      {compactSet(entry, exercise.measure)}
+                      {tileText(n)}
                     </>
+                  ) : target != null ? (
+                    `× ${target}`
                   ) : (
                     'Next'
                   )}
@@ -344,11 +391,21 @@ function FocusExercise({
           </div>
         </div>
 
+        {current != null && item.eachSide && (
+          <Chips
+            className="two"
+            options={SIDES}
+            value={slot?.side}
+            onChange={(side) => side && setPicked({ setNo: current, side })}
+            label={(s) => (s === 'L' ? 'Left' : 'Right')}
+          />
+        )}
+
         {current != null ? (
           <div className="steppers" style={{ ['--cols' as string]: cols.length }}>
             {cols.map((c) => (
               <Stepper
-                key={`${current}:${c.key}`}
+                key={`${slotKey}:${c.key}`}
                 col={c}
                 name={exercise.name}
                 value={vals[c.key]}
@@ -381,6 +438,7 @@ function FocusExercise({
           <>
             <button className="btn primary big block" onClick={log}>
               Update set {current}
+              {sideWord && `, ${sideWord}`}
             </button>
             <button className="quiet" onClick={() => remove(current)}>
               {rows > 1 ? 'Remove this set' : 'Clear this set'}
@@ -389,9 +447,12 @@ function FocusExercise({
         ) : (
           <>
             <button className="btn primary big block spread" onClick={log}>
-              <span>Log set {current}</span>
+              <span>
+                Log set {current}
+                {sideWord && `, ${sideWord}`}
+              </span>
               <span className="then">
-                {item.rest ? `then rest ${formatSeconds(item.rest)}` : ''}
+                {closesSet ? nextNote : 'then the other side'}
                 {Icon.arrow}
               </span>
             </button>
@@ -442,7 +503,7 @@ export default function SessionFlow({
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const items = w.items.filter((i) => exerciseById.has(i.exerciseId));
   const entriesFor = (item: RoutineItem) => sets.filter((s) => s.itemId === item.id);
-  const complete = (item: RoutineItem) => loggedSets(entriesFor(item)).length >= setCount(item, entriesFor(item));
+  const complete = (item: RoutineItem) => setsDone(item, entriesFor(item)) >= setCount(item, entriesFor(item));
 
   const [view, setView] = useState<'log' | 'wrap'>('log');
   const [sheet, setSheet] = useState<'options' | 'pick' | 'swap'>();
@@ -484,6 +545,30 @@ export default function SessionFlow({
   };
 
   const nameOf = (i: RoutineItem) => exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
+
+  // Exercises that share a group are done in turn: one set of each, then the rest.
+  const group = item?.group ? items.filter((i) => i.group === item.group) : item ? [item] : [];
+  const restFor = (i: RoutineItem) => i.rest ?? group.find((g) => g.rest)?.rest;
+  /** The exercise that follows this one within the round, if any still has sets to do. */
+  const turnNext = item ? group.slice(group.indexOf(item) + 1).find((i) => !complete(i)) : undefined;
+
+  /** After a set: on to the next exercise in the round, or rest and go again, or move on. */
+  const afterSet = (more: boolean) => {
+    if (!item) return;
+    if (turnNext) {
+      setCurrentId(turnNext.id);
+      return;
+    }
+    const again = group.find((i) => (i.id === item.id ? more : !complete(i)));
+    const onward = again ?? items[items.indexOf(group[group.length - 1]) + 1];
+    if (!onward) {
+      setView('wrap');
+      return;
+    }
+    const rest = restFor(item);
+    if (rest) timer.start(countdownPhases(rest), REST_TIMER);
+    setCurrentId(onward.id);
+  };
 
   /** Losing logged sets is worth a question first; an untouched exercise just goes. */
   const sureAbout = async (i: RoutineItem, title: string, action: string) => {
@@ -595,6 +680,15 @@ export default function SessionFlow({
           onNext={() => setCurrentId(items[at + 1]?.id)}
           onWrap={() => setView('wrap')}
           onAddSet={() => addSet(w.id, item.id)}
+          onSetDone={afterSet}
+          groupNote={group.length > 1 ? `${group.length > 2 ? 'Circuit' : 'Superset'}, ${group.indexOf(item) + 1} of ${group.length}` : undefined}
+          nextNote={
+            turnNext
+              ? `then ${nameOf(turnNext)}`
+              : restFor(item)
+                ? `then rest ${formatSeconds(restFor(item)!)}`
+                : ''
+          }
           onOptions={() => setSheet('options')}
         />
       )}

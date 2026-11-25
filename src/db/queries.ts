@@ -1,4 +1,4 @@
-import type { AppDB, Exercise, Measure, Programme, ProgrammeSlot, SetEntry, Workout } from './schema';
+import type { AppDB, ComplexPart, Exercise, Measure, Programme, ProgrammeSlot, SetEntry, Workout } from './schema';
 import { addDays, daysBetween } from '../lib/dates';
 
 export const slotKey = (s: Pick<ProgrammeSlot, 'week' | 'day'>): string => `${s.week}-${s.day}`;
@@ -147,10 +147,29 @@ export function formatSet(s: SetEntry, measure: Measure): string {
   }
 }
 
+/** "2 double clean, 1 double press, 3 front squat": what one round of a complex is. */
+export const describeParts = (parts: ComplexPart[]): string => parts.map((p) => `${p.reps} ${p.name.toLowerCase()}`).join(', ');
+
+/** What a number of rounds of a complex adds up to: "14 double clean, 7 double press, 21 front squat". */
+export const complexTotals = (parts: ComplexPart[], rounds: number): string =>
+  describeParts(parts.map((p) => ({ ...p, reps: p.reps * rounds })));
+
+/** Total rounds logged for an exercise in a session. */
+export const totalRounds = (sets: SetEntry[]): number => sets.reduce((a, s) => a + (s.reps ?? 0), 0);
+
 /** Compact one-line summary: "60 kg × 8, 8, 7" when the weight is constant. */
 export function summariseSets(sets: SetEntry[], measure: Measure): string {
   const rows = sets.filter(hasValue);
   if (!rows.length) return '';
+  // Sides logged apart read as left/right pairs: "16 kg × 8/7, 8/8 (L/R)".
+  if (rows.some((r) => r.side)) {
+    const value = (r?: SetEntry) => (r ? String(r.reps ?? (r.seconds != null ? formatSeconds(r.seconds) : (r.metres ?? r.weight ?? ''))) : '–');
+    const nos = [...new Set(rows.map((r) => r.setNo))].sort((a, b) => a - b);
+    const pairs = nos.map((n) => `${value(rows.find((r) => r.setNo === n && r.side === 'L'))}/${value(rows.find((r) => r.setNo === n && r.side === 'R'))}`);
+    const w = rows[0].weight;
+    const sameWeight = w != null && rows.every((r) => r.weight === w && r.reps != null);
+    return `${sameWeight ? `${formatWeight(w, rows[0].count)} × ` : ''}${pairs.join(', ')} (L/R)`;
+  }
   if (measure === 'weight_reps') {
     const weights = new Set(rows.map((r) => `${r.count ?? 1}:${r.weight}`));
     if (weights.size === 1 && rows[0].weight != null && rows.every((r) => r.reps != null)) {

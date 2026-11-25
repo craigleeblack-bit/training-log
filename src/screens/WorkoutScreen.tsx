@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Workout } from '../db/schema';
+import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Workout } from '../db/schema';
 import { formatSet, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
 import { isoDate, niceDate, relativeDay } from '../lib/dates';
 import { buildWorkoutContext } from '../lib/claude';
-import { BACK_OPTIONS, COLUMNS, RPE, addSet, fmtDuration, removeSet, saveSet, setCount, type NumKey } from '../lib/logging';
+import { BACK_OPTIONS, COLUMNS, RPE, addSet, fmtDuration, removeSet, saveSet, setCount, sidesOf, type NumKey } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
 import { Chips, Field, Icon, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
@@ -40,8 +40,8 @@ function ExerciseCard({
     };
   };
 
-  const toggle = async (setNo: number) => {
-    const current = entries.find((e) => e.setNo === setNo);
+  const toggle = async (setNo: number, side?: Side) => {
+    const current = entries.find((e) => e.setNo === setNo && e.side === side);
     if (current && hasValue(current)) {
       // A logged set is a record: un-logging it is asked about, never a slip of the thumb.
       const ok = await confirm({
@@ -60,7 +60,7 @@ function ExerciseCard({
       toast('Enter a value first.');
       return;
     }
-    await saveSet(workout, item, exercise, setNo, fill);
+    await saveSet(workout, item, exercise, setNo, fill, side);
   };
 
   const dropLast = async () => {
@@ -98,17 +98,20 @@ function ExerciseCard({
       )}
 
       <div className="stack" style={{ ['--cols' as string]: cols.length, gap: 8 }}>
-        {Array.from({ length: rows }, (_, i) => i + 1).map((setNo) => {
-          const entry = entries.find((e) => e.setNo === setNo);
+        {Array.from({ length: rows }, (_, i) => i + 1).flatMap((setNo) => sidesOf(item).map((side) => ({ setNo, side }))).map(({ setNo, side }) => {
+          const entry = entries.find((e) => e.setNo === setNo && e.side === side);
           const exp = expected(setNo);
           const on = !!entry && hasValue(entry);
           return (
-            <div key={setNo} className="set-row">
-              <span className="no">{setNo}</span>
+            <div key={`${setNo}${side ?? ''}`} className="set-row">
+              <span className="no">
+                {setNo}
+                {side}
+              </span>
               {cols.map((c) => (
                 <NumInput
                   key={c.key}
-                  ariaLabel={`${exercise.name} set ${setNo} ${c.label}`}
+                  ariaLabel={`${exercise.name} set ${setNo}${side ? ` ${side === 'L' ? 'left' : 'right'}` : ''} ${c.label}`}
                   unit={c.unit}
                   value={entry?.[c.key]}
                   placeholder={
@@ -116,14 +119,14 @@ function ExerciseCard({
                   }
                   parse={c.key === 'seconds' ? parseDuration : undefined}
                   format={c.key === 'seconds' ? fmtDuration : undefined}
-                  onCommit={(v) => saveSet(workout, item, exercise, setNo, { [c.key]: v })}
+                  onCommit={(v) => saveSet(workout, item, exercise, setNo, { [c.key]: v }, side)}
                 />
               ))}
               <button
                 className={`check${on ? ' on' : ''}`}
                 aria-label={`${on ? 'Clear' : 'Complete'} set ${setNo}`}
                 aria-pressed={on}
-                onClick={() => toggle(setNo)}
+                onClick={() => toggle(setNo, side)}
               >
                 {Icon.check}
               </button>

@@ -1759,6 +1759,22 @@ button {
   height: 18px;
 }
 
+/* Exercises done in turn as a superset carry a bar down their left edge. */
+.row.grouped {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.s-title .group-note {
+  font-weight: 650;
+  color: var(--accent-text);
+}
+
+.part-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
 /* A row with small tools on the right: reorder, swap, remove. */
 .row.tools {
   gap: 2px;
