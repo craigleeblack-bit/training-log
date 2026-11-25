@@ -7,6 +7,7 @@ import { isoDate, niceDate, relativeDay } from '../lib/dates';
 import { buildWorkoutContext } from '../lib/claude';
 import { BACK_OPTIONS, COLUMNS, RPE, addSet, fmtDuration, removeSet, saveSet, setCount, sidesOf, type NumKey } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
+import { routineFromWorkout } from '../lib/planning';
 import { Chips, Field, Icon, NumInput, Page, SectionTitle, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import SessionFlow from './SessionFlow';
@@ -152,7 +153,7 @@ function ExerciseCard({
 export default function WorkoutScreen() {
   const { id = '' } = useParams();
   const nav = useNavigate();
-  const { confirm } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const ask = useAskClaude();
   const [picking, setPicking] = useState(false);
 
@@ -315,6 +316,19 @@ export default function WorkoutScreen() {
             Add exercise
           </button>
           <GpxImport workout={w} label="Add a GPX route" />
+          {w.items.length > 0 && (
+            <button
+              className="btn"
+              onClick={async () => {
+                const r = routineFromWorkout(w, await db.routines.where('spaceId').equals(w.spaceId).count());
+                await db.routines.add(r);
+                toast('Saved as a routine.');
+                nav(`/routine/${r.id}`);
+              }}
+            >
+              Save as routine
+            </button>
+          )}
           <button className="btn ghost" onClick={() => ask(() => buildWorkoutContext(db, w))}>
             Ask Claude
           </button>

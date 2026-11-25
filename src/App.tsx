@@ -15,6 +15,7 @@ import TimerScreen from './screens/TimerScreen';
 import { Library, NoteScreen } from './screens/Library';
 import Settings from './screens/Settings';
 import History from './screens/History';
+import Calendar from './screens/Calendar';
 
 // Screens with heavy libraries of their own load when first opened, so the app starts fast.
 const Passes = lazy(() => import('./screens/Passes'));
@@ -41,7 +42,7 @@ function TrackPill() {
 /** Four places to be. Every other screen belongs to one of them, which stays lit while you are there. */
 const TABS = [
   { to: '/', label: 'Today', icon: Icon.today, owns: /^\/($|space\/|routine\/|workout\/|settings|pass|track\/)/ },
-  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|history)/ },
+  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|history|calendar|progress)/ },
   { to: '/timer', label: 'Timer', icon: Icon.timer, owns: /^\/timer/ },
   { to: '/library', label: 'Library', icon: Icon.library, owns: /^\/(library|note\/|exercises|exercise\/)/ },
 ];
@@ -108,6 +109,7 @@ export default function App() {
               <Route path="/exercises" element={<ExerciseList />} />
               <Route path="/exercise/:id" element={<ExerciseDetail />} />
               <Route path="/history" element={<History />} />
+              <Route path="/calendar" element={<Calendar />} />
               <Route path="/timer" element={<TimerScreen />} />
               <Route path="/library" element={<Library />} />
               <Route path="/note/:id" element={<NoteScreen />} />

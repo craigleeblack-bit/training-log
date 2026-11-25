@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type RoutineItem } from '../db/schema';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { linkAbove, normaliseGroups, parseLadder } from '../lib/logging';
+import { routineCopy } from '../lib/planning';
 import { Chips, Field, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 
 export function itemSummary(item: RoutineItem): string {
@@ -181,7 +182,8 @@ export default function RoutineEdit() {
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState<string>();
 
-  if (routine === undefined) return null;
+  // A duplicate opens in this same screen: its fields must start from the copy, not the original.
+  if (routine === undefined || routine?.id !== id) return null;
   if (!routine) {
     return (
       <Page title="Routine" back>
@@ -278,6 +280,16 @@ export default function RoutineEdit() {
         {!routine.items.length && <div className="empty">No exercises yet.</div>}
       </div>
 
+      <button
+        className="btn"
+        onClick={async () => {
+          const copy = routineCopy(routine, (await db.routines.where('spaceId').equals(routine.spaceId).count()) + 1);
+          await db.routines.add(copy);
+          nav(`/routine/${copy.id}`, { replace: true });
+        }}
+      >
+        Duplicate this routine
+      </button>
       <button className="btn ghost danger" onClick={remove}>
         Delete this routine
       </button>

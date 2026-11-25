@@ -5,6 +5,7 @@ import { db, uid, type Programme, type ProgrammeSlot, type Routine } from '../db
 import { closedSlots, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
 import { addDays, dayName, daysBetween, isoDate, niceDate, parseIso } from '../lib/dates';
 import { startWorkout } from '../actions';
+import { copyWeek, moveProgrammeDay, programmeCopy, repeatWeeks, type Day } from '../lib/planning';
 import { Field, Icon, Page, Sheet, parseNumber, useFeedback } from '../ui';
 
 function SlotForm({
@@ -14,6 +15,8 @@ function SlotForm({
   onSave,
   onClear,
   onClose,
+  days,
+  onMove,
 }: {
   slot: ProgrammeSlot;
   routines: Routine[];
@@ -21,6 +24,9 @@ function SlotForm({
   onSave: (s: ProgrammeSlot) => void;
   onClear: () => void;
   onClose: () => void;
+  /** Other days this session could go to. Empty for a day that has no session yet. */
+  days: (Day & { label: string })[];
+  onMove: (to: Day) => void;
 }) {
   const [s, setS] = useState(slot);
   const set = (changes: Partial<ProgrammeSlot>) => setS((prev) => ({ ...prev, ...changes }));
@@ -60,6 +66,24 @@ function SlotForm({
         <input type="checkbox" checked={!!s.rest} onChange={(e) => set({ rest: e.target.checked, title: e.target.checked && !s.title ? 'Rest' : s.title })} />
         Rest day
       </label>
+      {days.length > 0 && (
+        <Field label="Move to another day">
+          <select
+            value=""
+            onChange={(e) => {
+              const [week, day] = e.target.value.split('-').map(Number);
+              if (e.target.value) onMove({ week, day });
+            }}
+          >
+            <option value="">Keep it on this day</option>
+            {days.map((d) => (
+              <option key={`${d.week}-${d.day}`} value={`${d.week}-${d.day}`}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <div className="grid-2">
         <button className="btn danger" onClick={onClear}>
           Clear day
@@ -84,9 +108,96 @@ function SlotForm({
   );
 }
 
-interface Day {
-  week: number;
-  day: number;
+/** The other places the Plan tab leads to. */
+function PlanLinks() {
+  const links = [
+    { to: '/calendar', title: 'Calendar', sub: 'Every space, month by month', icon: Icon.plan },
+    { to: '/progress', title: 'Progress', sub: 'Volume, records and consistency', icon: Icon.chart },
+    { to: '/history', title: 'History', sub: 'Every session you have logged', icon: Icon.clock },
+  ];
+  return (
+    <div className="card flush">
+      {links.map((l) => (
+        <Link key={l.to} to={l.to} className="row">
+          {l.icon}
+          <div className="grow">
+            <div className="title">{l.title}</div>
+            <div className="sub">{l.sub}</div>
+          </div>
+          {Icon.chevRight}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** Copy one week over others, or repeat a block of weeks to the end. */
+function WeekCopy({ p, onApply, onClose }: { p: Programme; onApply: (slots: ProgrammeSlot[]) => void; onClose: () => void }) {
+  const weeks = Array.from({ length: p.weeks }, (_, i) => i + 1);
+  const [from, setFrom] = useState(1);
+  const [to, setTo] = useState<number[]>([]);
+  const [block, setBlock] = useState(Math.min(2, p.weeks - 1));
+  const targets = weeks.filter((w) => w !== from);
+  return (
+    <Sheet title="Copy weeks" onClose={onClose}>
+      <Field label="Copy this week">
+        <select
+          value={from}
+          onChange={(e) => {
+            setFrom(Number(e.target.value));
+            setTo([]);
+          }}
+        >
+          {weeks.map((w) => (
+            <option key={w} value={w}>
+              Week {w}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="field">
+        <span>Onto these weeks, replacing what they hold</span>
+        <div className="chips">
+          {targets.map((w) => (
+            <button
+              key={w}
+              type="button"
+              className={`chip${to.includes(w) ? ' on' : ''}`}
+              aria-pressed={to.includes(w)}
+              onClick={() => setTo(to.includes(w) ? to.filter((x) => x !== w) : [...to, w])}
+            >
+              {w}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid-2">
+        <button className="btn" onClick={() => setTo(weeks.filter((w) => w > from))}>
+          All later weeks
+        </button>
+        <button className="btn primary" disabled={!to.length} onClick={() => onApply(copyWeek(p.slots, from, to))}>
+          Copy
+        </button>
+      </div>
+      {p.weeks > 2 && (
+        <>
+          <p className="sub">Or repeat the first weeks, as a block, through to the end of the programme.</p>
+          <div className="grid-2">
+            <select className="input" aria-label="Weeks in the block" value={block} onChange={(e) => setBlock(Number(e.target.value))}>
+              {weeks.slice(1, -1).map((w) => (
+                <option key={w} value={w}>
+                  Weeks 1 to {w}
+                </option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => onApply(repeatWeeks(p.slots, block, p.weeks))}>
+              Repeat to the end
+            </button>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
 }
 
 /**
@@ -95,8 +206,9 @@ interface Day {
  */
 function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onSwitch?: () => void }) {
   const nav = useNavigate();
-  const { confirm } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const [editMode, setEditMode] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [editing, setEditing] = useState<Day>();
   const [picked, setPicked] = useState<Day>();
   const today = isoDate();
@@ -151,6 +263,13 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
   const start = async (s: ProgrammeSlot) => {
     const routine = routines.find((r) => r.id === s.routineId);
     nav(`/workout/${await startWorkout({ spaceId: p.spaceId, routine, programme: p, slot: s })}`);
+  };
+
+  const duplicate = async () => {
+    const copy = programmeCopy(p, today);
+    await db.programmes.add(copy);
+    toast('Copied. Set its start date, then tick Show on the Today screen.');
+    nav(`/programme/${copy.id}`);
   };
 
   const remove = async () => {
@@ -213,7 +332,15 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             <Field label="Notes">
               <textarea defaultValue={p.notes ?? ''} onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })} />
             </Field>
-            <p className="sub">Tap any day below to set or change its session.</p>
+            <div className="grid-2">
+              <button className="btn" disabled={p.weeks < 2} onClick={() => setCopying(true)}>
+                Copy weeks
+              </button>
+              <button className="btn" onClick={duplicate}>
+                Duplicate programme
+              </button>
+            </div>
+            <p className="sub">Tap any day below to set, change or move its session.</p>
           </div>
         ) : (
           <div className="card stack">
@@ -337,21 +464,24 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
           </section>
         )}
 
-        {root && !editMode && (
-          <div className="card flush">
-            <Link to="/history" className="row">
-              <div className="grow">
-                <div className="title">History</div>
-              </div>
-              {Icon.chevRight}
-            </Link>
-          </div>
-        )}
+        {root && !editMode && <PlanLinks />}
 
         {editMode && (
           <button className="btn ghost danger" onClick={remove}>
             Delete this programme
           </button>
+        )}
+
+        {copying && (
+          <WeekCopy
+            p={p}
+            onClose={() => setCopying(false)}
+            onApply={(slots) => {
+              void patch({ slots });
+              setCopying(false);
+              toast('Weeks copied.');
+            }}
+          />
         )}
 
         {editingSlot && editing && (
@@ -361,6 +491,21 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             dateLabel={niceDate(slotDate(p, editing), today)}
             onClose={() => setEditing(undefined)}
             onSave={saveSlot}
+            days={
+              find(editing)
+                ? Array.from({ length: p.weeks * 7 }, (_, n) => ({ week: Math.floor(n / 7) + 1, day: n % 7 }))
+                    .filter((d) => !(d.week === editing.week && d.day === editing.day))
+                    .map((d) => {
+                      const taken = find(d);
+                      return { ...d, label: `Week ${d.week}, ${niceDate(slotDate(p, d), today)}${taken ? ` (swap with ${taken.title})` : ''}` };
+                    })
+                : []
+            }
+            onMove={async (to) => {
+              await moveProgrammeDay(p.id, editing, to);
+              setEditing(undefined);
+              setPicked(to);
+            }}
             onClear={() => {
               void patch({ slots: p.slots.filter((s) => !(s.week === editing.week && s.day === editing.day)) });
               setEditing(undefined);
@@ -439,14 +584,7 @@ export function PlanScreen() {
             </Link>
           )}
         </section>
-        <div className="card flush">
-          <Link to="/history" className="row">
-            <div className="grow">
-              <div className="title">History</div>
-            </div>
-            {Icon.chevRight}
-          </Link>
-        </div>
+        <PlanLinks />
       </Page>
     );
   }
