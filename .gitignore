@@ -1,4 +1,8 @@
 node_modules/
+
+# Dexie Cloud: the key is a secret, the json names the database for the command-line tool
+dexie-cloud.key
+dexie-cloud.json
 dist/
 dev-dist/
 

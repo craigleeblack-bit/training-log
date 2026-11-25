@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useLiveQuery, useObservable } from 'dexie-react-hooks';
+import { SYNC_URL } from '../sync';
 import { db, TABLES } from '../db/schema';
 import { backupFilename, exportBackup, importBackup, validateBackup, type ImportMode } from '../db/backup';
 import { addDays, daysBetween, isoDate, relativeDay } from '../lib/dates';
@@ -9,6 +10,83 @@ import { download } from '../lib/download';
 import { Field, Page, SectionTitle, useFeedback } from '../ui';
 
 const LAST_BACKUP_KEY = 'lastBackup';
+
+const PHASE: Record<string, string> = {
+  initial: 'Starting',
+  'not-in-sync': 'Changes waiting to sync',
+  pushing: 'Sending changes',
+  pulling: 'Fetching changes',
+  'in-sync': 'Up to date',
+  error: 'Sync problem',
+  offline: 'Offline: will sync when back online',
+};
+
+/** Sign in to keep this device in step with your others. Shown only when sync is configured. */
+function SyncCard({ onBackup }: { onBackup: () => Promise<void> }) {
+  const { toast, confirm } = useFeedback();
+  const user = useObservable(db.cloud.currentUser);
+  const state = useObservable(db.cloud.syncState);
+  const signedIn = !!user?.isLoggedIn;
+
+  const signIn = async () => {
+    const ok = await confirm({
+      title: 'Turn on sync?',
+      body: 'Your log will be stored on Dexie Cloud so your devices can share it. A backup file is saved first. You sign in with a code sent to your email.',
+      action: 'Back up and sign in',
+    });
+    if (!ok) return;
+    await onBackup();
+    try {
+      await db.cloud.login();
+    } catch {
+      toast('Sign-in did not finish.');
+    }
+  };
+
+  const signOut = async () => {
+    const ok = await confirm({
+      title: 'Sign out of sync?',
+      body: 'This device stops syncing and its copy of your synced log is cleared. It stays in your account and on your other devices.',
+      action: 'Sign out',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await db.cloud.logout();
+    } catch {
+      toast('Could not sign out: there are changes still waiting to sync.');
+    }
+  };
+
+  return (
+    <div className="card stack">
+      <div className="spread">
+        <span>{signedIn ? (user?.email ?? 'Signed in') : 'Not signed in'}</span>
+        {signedIn && <span className={`badge${state?.phase === 'in-sync' ? ' ok' : state?.phase === 'error' ? ' warn' : ''}`}>{PHASE[state?.phase ?? 'initial']}</span>}
+      </div>
+      <p className="sub">
+        {signedIn
+          ? 'This device syncs whenever the app is open and online. Sign in with the same email on another device to share the log.'
+          : 'Sign in on your phone and your computer with the same email, and changes on one appear on the other. Until you do, nothing leaves this device.'}
+      </p>
+      {state?.phase === 'error' && state.error && <p className="sub">{state.error.message}</p>}
+      {signedIn ? (
+        <div className="grid-2">
+          <button className="btn" onClick={() => db.cloud.sync().catch(() => toast('Could not sync just now.'))}>
+            Sync now
+          </button>
+          <button className="btn ghost danger" onClick={signOut}>
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <button className="btn primary" onClick={signIn}>
+          Sign in to sync
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function Settings() {
   const { toast, confirm } = useFeedback();
@@ -163,6 +241,19 @@ export default function Settings() {
         </button>
       </div>
 
+      <SectionTitle>Sync</SectionTitle>
+      {SYNC_URL ? (
+        <SyncCard onBackup={doExport} />
+      ) : (
+        <div className="card stack">
+          <span>Not set up in this copy of the app</span>
+          <p className="sub">
+            Sync keeps a phone and a computer in step through Dexie Cloud. It needs a database address adding once, as described in
+            the README; until then everything stays on this device and backup files move it.
+          </p>
+        </div>
+      )}
+
       <SectionTitle>Backup</SectionTitle>
       <div className="card stack">
         <div className="spread">
@@ -172,7 +263,8 @@ export default function Settings() {
           {info.workouts > 0 && (backupAge === undefined || backupAge > 14) && <span className="badge warn">Due</span>}
         </div>
         <p className="sub">
-          Your log lives only on this device. A backup file is the way to keep it safe or move it to another device.
+          A backup file is a complete copy of your log that you keep yourself. Without sync it is the only copy off this device;
+          with sync it is still worth having.
         </p>
         <button className="btn primary" onClick={doExport}>
           Export backup

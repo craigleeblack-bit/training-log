@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import dexieCloud from 'dexie-cloud-addon';
+import { SYNC_URL } from '../sync';
 import { guessCategory, type ExerciseCategory } from '../lib/categories';
 import { DEFAULT_TIMERS, type TimerSpec } from '../lib/timer';
 
@@ -226,8 +228,20 @@ export class AppDB extends Dexie {
   passes!: Table<Pass, string>;
   tracks!: Table<Track, string>;
 
-  constructor(name = 'training-log') {
-    super(name);
+  /** `sync` connects this database to Dexie Cloud. Only the app's own database does; tests never do. */
+  constructor(name = 'training-log', sync?: string) {
+    super(name, sync ? { addons: [dexieCloud] } : {});
+    if (sync) {
+      this.cloud.configure({
+        databaseUrl: sync,
+        // The app works exactly as before until you choose to sign in.
+        requireAuth: false,
+        // Keep using the database already on this device, so signing in uploads what is there.
+        nameSuffix: false,
+        // The app's own service worker only caches files; syncing happens while the app is open.
+        tryUseServiceWorker: false,
+      });
+    }
     this.version(1).stores({
       spaces: 'id, order',
       exercises: 'id, name',
@@ -261,7 +275,7 @@ export class AppDB extends Dexie {
   }
 }
 
-export const db = new AppDB();
+export const db = new AppDB('training-log', SYNC_URL);
 
 export const TABLES = [
   'spaces',

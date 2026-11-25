@@ -94,6 +94,26 @@ export async function importGpx(text: string, workout: Workout, activity: Activi
   return track;
 }
 
+const STORE_KEY = 'track-recording';
+
+function recall(): Recording | undefined {
+  try {
+    const r = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null') as Recording | null;
+    return r && Array.isArray(r.segments) ? { ...r, segments: r.segments.length ? r.segments : [[]] } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function remember(r: Recording | undefined): void {
+  try {
+    if (r) localStorage.setItem(STORE_KEY, JSON.stringify(r));
+    else localStorage.removeItem(STORE_KEY);
+  } catch {
+    /* storage full or private mode: the recording carries on, it just would not survive a reload */
+  }
+}
+
 /** Longer than this without a point means the phone stopped listening, not that you stood still. */
 const GAP_AFTER = 20_000;
 const SAVE_EVERY = 5_000;
@@ -111,24 +131,22 @@ export function TrackProvider({ children }: { children: ReactNode }) {
 
   // A recording cut short by a reload or a closed app is picked up again, paused.
   useEffect(() => {
-    void (async () => {
-      const open = await db.tracks.filter((t) => t.source === 'gps' && !t.endedAt).first();
-      if (!open) return;
-      if (!(await db.workouts.get(open.workoutId))) {
-        await db.tracks.delete(open.id);
-        return;
-      }
-      setRec((r) => r ?? { ...open, segments: open.segments.length ? open.segments : [[]], paused: true });
-    })();
+    const open = recall();
+    if (!open) return;
+    void db.workouts.get(open.workoutId).then((w) => {
+      if (w) setRec((r) => r ?? { ...open, paused: true });
+      else remember(undefined);
+    });
   }, []);
 
-  // Keep the stored copy close behind the live one, so nothing much is lost if the app dies.
+  // Keep a copy close behind the live recording, so nothing much is lost if the app dies. It stays
+  // on this device until the route is finished: a half-made route is no use to another one.
   useEffect(() => {
     if (!rec) return;
     const now = Date.now();
     if (!rec.paused && now - savedAt.current < SAVE_EVERY) return;
     savedAt.current = now;
-    void db.tracks.put(asTrack(rec));
+    remember(rec);
   }, [rec]);
 
   const onFix = useCallback((pos: GeolocationPosition) => {
@@ -216,20 +234,17 @@ export function TrackProvider({ children }: { children: ReactNode }) {
     const track = asTrack(r, Date.now());
     setRec(undefined);
     setGap(undefined);
-    if (!track.segments.length) {
-      await db.tracks.delete(r.id); // nothing was recorded: leave no empty route behind
-      return undefined;
-    }
+    remember(undefined);
+    if (!track.segments.length) return undefined; // nothing was recorded: leave no empty route behind
     await db.tracks.put(track);
     await fillMinutes(track.workoutId, track.seconds);
     return track;
   }, []);
 
   const discard = useCallback(async () => {
-    const r = latest.current;
     setRec(undefined);
     setGap(undefined);
-    if (r) await db.tracks.delete(r.id);
+    remember(undefined);
   }, []);
 
   const dismissGap = useCallback(() => setGap(undefined), []);
