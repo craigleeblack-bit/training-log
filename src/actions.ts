@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, uid, type Programme, type ProgrammeSlot, type Routine, type Workout } from './db/schema';
 import { slotKey } from './db/queries';
-import { isoDate } from './lib/dates';
+import { isoDate, weekStart } from './lib/dates';
 import { activityOf, type ActivityKey } from './lib/activities';
 import { CLAUDE_URL_KEY, copyText, normaliseClaudeUrl } from './lib/claude';
 import { useFeedback } from './ui';
@@ -24,16 +24,25 @@ interface StartArgs {
   title?: string;
   /** The kind of exercise, when the caller has already worked it out. */
   activity?: ActivityKey;
+  /** The weekday card it was started from (0 = Monday), which it ticks once done. */
+  scheduleDay?: number;
+  /** The day it counts for, when logging a past week's session. Today otherwise. */
+  date?: string;
 }
 
-/** Start a workout, or resume the unfinished one for the same routine or programme slot. */
-export async function startWorkout({ spaceId, routine, programme, slot, title, activity }: StartArgs): Promise<string> {
+/** Start a workout, or resume the unfinished one for the same routine (and day) or programme slot. */
+export async function startWorkout({ spaceId, routine, programme, slot, title, activity, scheduleDay, date }: StartArgs): Promise<string> {
   const key = slot ? slotKey(slot) : undefined;
+  const day = date ?? isoDate();
   const open = await db.workouts.where('status').equals('in_progress').toArray();
   const existing = open.find((w) =>
     programme && key
       ? w.programmeId === programme.id && w.slotKey === key
-      : !w.programmeId && !!routine && w.routineId === routine.id,
+      : !w.programmeId &&
+        !!routine &&
+        w.routineId === routine.id &&
+        // From a day card, only that day's own unfinished session in the same week is resumed.
+        (scheduleDay === undefined || (w.scheduleDay === scheduleDay && weekStart(w.date) === weekStart(day))),
   );
   if (existing) return existing.id;
 
@@ -43,12 +52,13 @@ export async function startWorkout({ spaceId, routine, programme, slot, title, a
 
   const workout: Workout = {
     id: uid(),
-    date: isoDate(),
+    date: day,
     startedAt: Date.now(),
     spaceId,
     routineId: routine?.id,
     programmeId: programme?.id,
     slotKey: key,
+    scheduleDay,
     title: slot?.title ?? routine?.name ?? title ?? 'Quick session',
     activity: activity ?? (slot || routine ? activityOf(slot ?? { title: '' }, routine, { programme: programme?.name }) : undefined),
     prescription:

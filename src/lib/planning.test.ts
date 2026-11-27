@@ -12,6 +12,8 @@ import {
   routineCopy,
   routineFromWorkout,
   shiftMonth,
+  applyWeekSchedule,
+  weekSchedule,
 } from './planning';
 
 const slots: ProgrammeSlot[] = [
@@ -121,5 +123,39 @@ describe('calendar', () => {
 
   it('keeps a copy on or off calendar dates as the original was', () => {
     expect(programmeCopy({ ...programme, dated: false }).dated).toBe(false);
+  });
+});
+
+describe('a programme week as the weekly schedule', () => {
+  const week: ProgrammeSlot[] = [
+    { week: 1, day: 0, title: 'A', routineId: 'ra' },
+    { week: 1, day: 2, title: 'B', routineId: 'rb' },
+    { week: 1, day: 4, title: 'A again', routineId: 'ra' },
+    { week: 1, day: 5, title: 'Walk' },
+    { week: 1, day: 6, title: 'Rest', rest: true, routineId: 'rb' },
+    { week: 2, day: 1, title: 'C', routineId: 'rc' },
+  ];
+
+  it('collects the days each routine falls on, leaving out rest days and sessions with no routine', () => {
+    const undated = { ...programme, dated: false, slots: week };
+    expect([...weekSchedule(undated, 1)]).toEqual([
+      ['ra', [0, 4]],
+      ['rb', [2]],
+    ]);
+    // Dated, a day is the weekday of its date: this programme starts on a Wednesday.
+    const dated = { ...programme, startDate: '2026-11-25', slots: week };
+    expect(weekSchedule(dated, 1).get('ra')).toEqual([2, 6]);
+  });
+
+  it('writes the days onto the routines, replacing what they had', async () => {
+    await db.routines.bulkPut([
+      { id: 'ra', spaceId: 's1', name: 'A', logStyle: 'sets', items: [], order: 0, days: [6] },
+      { id: 'rb', spaceId: 's1', name: 'B', logStyle: 'sets', items: [], order: 1 },
+      { id: 'rc', spaceId: 's1', name: 'C', logStyle: 'sets', items: [], order: 2, days: [3] },
+    ]);
+    expect(await applyWeekSchedule({ ...programme, dated: false, slots: week }, 1)).toBe(2);
+    expect((await db.routines.get('ra'))?.days).toEqual([0, 4]);
+    expect((await db.routines.get('rb'))?.days).toEqual([2]);
+    expect((await db.routines.get('rc'))?.days).toEqual([3]);
   });
 });

@@ -8,6 +8,10 @@ import { routineCopy } from '../lib/planning';
 import { Chips, Field, IconPicker, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 import { guessActivity, knownActivity } from '../lib/activities';
 import { ACTIVITY_OPTIONS } from '../icons';
+import { repeatLabel } from '../lib/dates';
+
+const WEEKDAY_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const WEEKDAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function itemSummary(item: RoutineItem): string {
   const parts: string[] = [];
@@ -246,6 +250,35 @@ export default function RoutineEdit() {
           onChange={(k) => patch({ activity: k })}
           hint={routine.activity ? 'Shown on the Week screen' : 'Guessed from the name'}
         />
+      </div>
+
+      <div className="field">
+        <span>Repeats on</span>
+        <div className="chips days" role="group" aria-label="Repeats on">
+          {WEEKDAY_SHORT.map((label, d) => {
+            const on = !!routine.days?.includes(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                className={`chip${on ? ' on' : ''}`}
+                aria-pressed={on}
+                aria-label={WEEKDAY_LONG[d]}
+                onClick={() => {
+                  const next = on ? (routine.days ?? []).filter((x) => x !== d) : [...(routine.days ?? []), d].sort((a, b) => a - b);
+                  void patch({ days: next.length ? next : undefined });
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="sub" style={{ fontWeight: 400 }}>
+          {routine.days?.length
+            ? `On the Week screen every week: ${repeatLabel(routine.days)}.`
+            : 'Pick the days it should show on the Week screen, every week.'}
+        </span>
       </div>
 
       <div className="field">

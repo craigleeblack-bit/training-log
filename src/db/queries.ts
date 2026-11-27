@@ -1,5 +1,5 @@
 import type { AppDB, ComplexPart, Exercise, Measure, Programme, ProgrammeSlot, Routine, SetEntry, Workout } from './schema';
-import { addDays, daysBetween, parseIso } from '../lib/dates';
+import { addDays, daysBetween, inWeek, weekDates, weekdayIndex } from '../lib/dates';
 
 export const slotKey = (s: Pick<ProgrammeSlot, 'week' | 'day'>): string => `${s.week}-${s.day}`;
 
@@ -42,9 +42,6 @@ export function nextSlot(p: Programme, workouts: Workout[]): ProgrammeSlot | und
 /** Tied to calendar dates. Programmes from before the choice existed are. */
 export const isDated = (p: Programme): boolean => p.dated !== false;
 
-/** Monday-first weekday of a date: 0 = Monday … 6 = Sunday. */
-export const weekdayIndex = (iso: string): number => (parseIso(iso).getDay() + 6) % 7;
-
 /**
  * The week the programme is up to: the first with a session still open. Missed days never hold
  * it back by the calendar; it moves on once every session in the week is done or skipped.
@@ -57,54 +54,48 @@ export function currentWeek(p: Programme, closed: Map<string, Workout>): number 
 
 export type CellState = 'open' | 'done' | 'skipped' | 'resume';
 
-/** One session on the week grid. */
+/** One routine on one day of the week. */
 export interface WeekCell {
-  programme: Programme;
-  slot: ProgrammeSlot;
-  routine?: Routine;
+  routine: Routine;
+  /** 0 = Monday … 6 = Sunday. */
+  day: number;
+  date: string;
   state: CellState;
-  /** The session logged for it: finished, skipped or still going. */
+  /** The session that decides the state: finished, skipped or still going. */
   workout?: Workout;
 }
 
-export interface WeekShown {
-  programme: Programme;
-  week: number;
-  /** Every session in the programme is done or skipped. */
-  complete: boolean;
-}
-
-export interface WeekGrid {
-  /** Monday to Sunday, each with the sessions that fall on it (rest days included). */
-  days: WeekCell[][];
-  shown: WeekShown[];
-}
+/** Which weekday of a routine's schedule a session counts for: the day it was started from, else the day it was on. */
+export const scheduleDayOf = (w: Workout): number => w.scheduleDay ?? weekdayIndex(w.date);
 
 /**
- * The active programmes' current weeks laid over Monday to Sunday. `offset` looks back or ahead
- * from each programme's current week, staying inside the programme.
+ * The Monday-to-Sunday week starting `monday`, from each routine's repeating days. Nothing is
+ * stored about the week itself: a card is ticked by a finished session of its routine, for its
+ * weekday, dated inside this week. So a new week starts clear, and an old one still shows what was done.
  */
-export function weekGrid(programmes: Programme[], workouts: Workout[], routines: Routine[], offset = 0): WeekGrid {
-  const days: WeekCell[][] = Array.from({ length: 7 }, () => []);
-  const shown: WeekShown[] = [];
-  const routineById = new Map(routines.map((r) => [r.id, r]));
-  for (const p of programmes) {
-    if (!p.active) continue;
-    const closed = closedSlots(p, workouts);
-    const now = currentWeek(p, closed);
-    const week = Math.min(Math.max(1, now + offset), Math.max(1, p.weeks));
-    shown.push({ programme: p, week, complete: !nextSlot(p, workouts) });
-    for (const slot of p.slots) {
-      if (slot.week !== week) continue;
-      const key = slotKey(slot);
-      const done = closed.get(key);
-      const going = workouts.find((w) => w.programmeId === p.id && w.slotKey === key && w.status === 'in_progress');
-      const state: CellState = done ? (done.status === 'done' ? 'done' : 'skipped') : going ? 'resume' : 'open';
-      const column = isDated(p) ? weekdayIndex(slotDate(p, slot)) : slot.day;
-      days[column].push({ programme: p, slot, routine: slot.routineId ? routineById.get(slot.routineId) : undefined, state, workout: done ?? going });
-    }
-  }
-  return { days, shown };
+export function scheduleWeek(routines: Routine[], workouts: Workout[], monday: string): WeekCell[][] {
+  const dates = weekDates(monday);
+  const thisWeek = workouts.filter((w) => w.routineId && inWeek(w.date, monday));
+  const rank: Record<string, number> = { done: 3, in_progress: 2, skipped: 1 };
+  const scheduled = [...routines].filter((r) => r.days?.length).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  return dates.map((date, day) =>
+    scheduled
+      .filter((r) => r.days!.includes(day))
+      .map((routine) => {
+        // Finished beats in progress beats skipped, and a later one beats an earlier one.
+        const workout = thisWeek
+          .filter((w) => w.routineId === routine.id && scheduleDayOf(w) === day)
+          .sort((a, b) => rank[b.status] - rank[a.status] || b.startedAt - a.startedAt)[0];
+        const state: CellState = !workout
+          ? 'open'
+          : workout.status === 'done'
+            ? 'done'
+            : workout.status === 'skipped'
+              ? 'skipped'
+              : 'resume';
+        return { routine, day, date, state, workout };
+      }),
+  );
 }
 
 export function programmeProgress(p: Programme, workouts: Workout[]): { done: number; total: number } {
@@ -153,40 +144,62 @@ export async function lastTime(
 /** What was done in a session, one line per exercise. */
 export interface SessionRecap {
   workout: Workout;
-  lines: { exerciseId: string; name: string; summary: string }[];
+  lines: { itemId: string; exerciseId: string; name: string; summary: string }[];
 }
 
 /**
- * The last finished session of the same kind: the same routine, or else the same programme
- * session by title. `excludeWorkoutId` leaves out the one being logged.
+ * The latest finished session of a routine, with its sets grouped by the routine's items.
+ * `excludeWorkoutId` leaves out the one being logged.
  */
 export async function lastRoutineSession(
   db: AppDB,
-  match: { routineId?: string; programmeId?: string; title?: string },
+  routineId: string,
   opts: { excludeWorkoutId?: string } = {},
 ): Promise<SessionRecap | undefined> {
-  const candidates = match.routineId
-    ? await db.workouts.where('routineId').equals(match.routineId).toArray()
-    : match.programmeId
-      ? (await db.workouts.where('programmeId').equals(match.programmeId).toArray()).filter((w) => w.title === match.title)
-      : [];
-  const workout = candidates
+  const workout = (await db.workouts.where('routineId').equals(routineId).toArray())
     .filter((w) => w.status === 'done' && w.id !== opts.excludeWorkoutId)
     .sort((a, b) => b.date.localeCompare(a.date) || b.startedAt - a.startedAt)[0];
   if (!workout) return undefined;
   const sets = (await db.sets.where('workoutId').equals(workout.id).toArray()).filter(hasValue);
-  // In the order the session had them, then anything logged that was not in its plan.
-  const order = [...new Set([...workout.items.map((i) => i.exerciseId), ...sets.map((s) => s.exerciseId)])];
   const exercises = new Map(
-    (await db.exercises.bulkGet(order)).filter((e): e is Exercise => !!e).map((e) => [e.id, e]),
+    (await db.exercises.bulkGet([...new Set([...workout.items.map((i) => i.exerciseId), ...sets.map((s) => s.exerciseId)])]))
+      .filter((e): e is Exercise => !!e)
+      .map((e) => [e.id, e]),
   );
-  const lines = order.flatMap((exerciseId) => {
-    const e = exercises.get(exerciseId);
-    const mine = sets.filter((s) => s.exerciseId === exerciseId).sort((a, b) => a.setNo - b.setNo || (a.side ?? '').localeCompare(b.side ?? ''));
+  // One group per item, in the session's order; sets from before items were tracked match by exercise.
+  const itemIds = new Set(workout.items.map((i) => i.id));
+  const groups = workout.items.map((item) => ({
+    itemId: item.id,
+    exerciseId: item.exerciseId,
+    sets: sets.filter((s) => (s.itemId && itemIds.has(s.itemId) ? s.itemId === item.id : s.exerciseId === item.exerciseId)),
+  }));
+  const lines = groups.flatMap((g) => {
+    const e = exercises.get(g.exerciseId);
+    const mine = g.sets.sort((a, b) => a.setNo - b.setNo || (a.side ?? '').localeCompare(b.side ?? ''));
     if (!e || !mine.length) return [];
-    return [{ exerciseId, name: e.name, summary: summariseSets(mine, e.measure) }];
+    return [{ itemId: g.itemId, exerciseId: g.exerciseId, name: e.name, summary: setsLine(mine, e.measure) }];
   });
   return { workout, lines };
+}
+
+/**
+ * The shortest honest description of a few sets: "3 × 10 @ 16 kg" when every set was the same,
+ * otherwise each set in turn ("16 kg × 10, 10, 8").
+ */
+export function setsLine(sets: SetEntry[], measure: Measure): string {
+  const rows = sets.filter(hasValue);
+  const n = rows.length;
+  const same = <K extends keyof SetEntry>(k: K) => rows.every((r) => r[k] === rows[0][k]);
+  if (n > 1 && !rows.some((r) => r.side) && same('reps') && same('weight') && same('count') && same('seconds') && same('metres')) {
+    const r = rows[0];
+    if (measure === 'weight_reps' && r.reps != null)
+      return `${n} × ${r.reps}${r.weight != null ? ` @ ${formatWeight(r.weight, r.count)}` : ''}`;
+    if (measure === 'reps' && r.reps != null) return `${n} × ${r.reps}`;
+    if (measure === 'rounds' && r.reps != null)
+      return `${n} × ${r.reps} rounds${r.weight != null ? ` @ ${formatWeight(r.weight, r.count)}` : ''}`;
+    if (measure === 'time' && r.seconds != null) return `${n} × ${formatSeconds(r.seconds)}`;
+  }
+  return summariseSets(rows, measure);
 }
 
 export function hasValue(s: SetEntry): boolean {

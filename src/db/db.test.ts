@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { AppDB, type Programme, type Workout } from './schema';
+import { AppDB, type Programme, type Routine, type Workout } from './schema';
 import { exportBackup, importBackup, validateBackup } from './backup';
 import {
   closedSlots,
@@ -8,17 +8,19 @@ import {
   lastRoutineSession,
   lastTime,
   loadNumber,
-  weekGrid,
   nextSlot,
   programmeProgress,
   repsNumber,
   slotDate,
   slotForDate,
+  scheduleWeek,
+  setsLine,
   summariseSets,
+  type WeekCell,
 } from './queries';
 import { emomPhases, intervalPhases, positionAt, totalSeconds } from '../lib/timer';
 import { normaliseClaudeUrl } from '../lib/claude';
-import { addDays, daysBetween } from '../lib/dates';
+import { addDays, daysBetween, inWeek, repeatLabel, weekDates, weekdayIndex, weekRangeLabel, weekStart } from '../lib/dates';
 
 let n = 0;
 const freshDb = () => new AppDB(`test-${++n}`);
@@ -90,7 +92,7 @@ describe('programme resolution', () => {
   });
 });
 
-describe('the week', () => {
+describe('programme week', () => {
   it('is the first week with a session still open, ignoring rest days', () => {
     expect(currentWeek(programme, closedSlots(programme, []))).toBe(1);
     const week1 = [
@@ -102,48 +104,102 @@ describe('the week', () => {
     // Everything done: it stays on the last week.
     expect(currentWeek(programme, closedSlots(programme, all))).toBe(2);
   });
+});
 
-  it('lays the current week over Monday to Sunday, with each session state', () => {
-    const going = workout({ id: 'going', programmeId: 'p1', slotKey: '1-1', status: 'in_progress' });
-    const g = weekGrid([programme], [workout({ programmeId: 'p1', slotKey: '1-0' }), going], []);
-    expect(g.shown).toMatchObject([{ week: 1, complete: false }]);
-    expect(g.days.map((d) => d.map((c) => `${c.slot.title}:${c.state}`))).toEqual([
-      ['Strength A:done'],
-      ['Easy aerobic:resume'],
-      [],
-      [],
-      [],
-      [],
-      ['Rest:open'],
+describe('weeks of the calendar', () => {
+  it('starts every week on Monday, across the Sunday-to-Monday boundary', () => {
+    // Sunday 29 November 2026 still belongs to the week of Monday 23rd; Monday 30th starts the next.
+    expect(weekStart('2026-11-29')).toBe('2026-11-23');
+    expect(weekStart('2026-11-30')).toBe('2026-11-30');
+    expect(weekStart('2026-11-23')).toBe('2026-11-23');
+    expect(weekStart('2027-01-01')).toBe('2026-12-28'); // across a year
+    expect(weekStart('2026-03-29')).toBe('2026-03-23'); // the Sunday the clocks go forward
+    expect(weekStart('2026-10-25')).toBe('2026-10-19'); // and back
+    expect(weekdayIndex('2026-11-29')).toBe(6);
+    expect(weekdayIndex('2026-11-30')).toBe(0);
+  });
+
+  it('lists the seven days and tells which week a date is in', () => {
+    expect(weekDates('2026-11-23')).toEqual([
+      '2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27', '2026-11-28', '2026-11-29',
     ]);
-    expect(g.days[1][0].workout?.id).toBe('going');
+    expect(inWeek('2026-11-29', '2026-11-23')).toBe(true);
+    expect(inWeek('2026-11-30', '2026-11-23')).toBe(false);
+    expect(inWeek('2026-11-22', '2026-11-23')).toBe(false);
   });
 
-  it('moves on once a week is closed, and looks ahead or back inside the programme', () => {
-    const week1 = [
-      workout({ programmeId: 'p1', slotKey: '1-0' }),
-      workout({ programmeId: 'p1', slotKey: '1-1', status: 'skipped' }),
+  it('names a week and a set of repeating days', () => {
+    expect(weekRangeLabel('2026-11-23')).toBe('23–29 Nov');
+    expect(weekRangeLabel('2026-11-30')).toBe('30 Nov–6 Dec');
+    expect(repeatLabel([4, 0, 2])).toBe('Mon, Wed, Fri');
+    expect(repeatLabel([0, 1, 2, 3, 4])).toBe('Weekdays');
+    expect(repeatLabel([0, 1, 2, 3, 4, 5, 6])).toBe('Every day');
+    expect(repeatLabel(undefined)).toBe('');
+  });
+});
+
+describe('the week from routine schedules', () => {
+  const strength: Routine = { id: 'str', spaceId: 's1', name: 'Strength', logStyle: 'sets', items: [], order: 0, days: [0, 2, 4] };
+  const swim: Routine = { id: 'swim', spaceId: 's1', name: 'Swim', logStyle: 'session', items: [], order: 1, days: [2] };
+  const unscheduled: Routine = { id: 'x', spaceId: 's1', name: 'Odd one', logStyle: 'sets', items: [], order: 2 };
+  const routines = [strength, swim, unscheduled];
+  const mon = '2026-11-23';
+  const states = (cells: WeekCell[][]) => cells.map((d) => d.map((c) => `${c.routine.id}:${c.state}`));
+
+  it('puts each routine on its days, stacking several on one day', () => {
+    expect(states(scheduleWeek(routines, [], mon))).toEqual([
+      ['str:open'], [], ['str:open', 'swim:open'], [], ['str:open'], [], [],
+    ]);
+    expect(scheduleWeek(routines, [], mon)[6]).toEqual([]);
+    expect(scheduleWeek(routines, [], mon)[2][0].date).toBe('2026-11-25');
+  });
+
+  it('a routine on Mon, Wed and Fri ticks only the day its session was for', () => {
+    const wed = workout({ routineId: 'str', scheduleDay: 2, date: '2026-11-25' });
+    expect(states(scheduleWeek(routines, [wed], mon))).toEqual([
+      ['str:open'], [], ['str:done', 'swim:open'], [], ['str:open'], [], [],
+    ]);
+    // Wednesday's session done late on Thursday still ticks Wednesday.
+    const late = workout({ routineId: 'str', scheduleDay: 2, date: '2026-11-26' });
+    expect(scheduleWeek(routines, [late], mon)[2][0].state).toBe('done');
+    expect(scheduleWeek(routines, [late], mon)[3]).toEqual([]);
+  });
+
+  it('starts a new week clear, and an earlier week still shows its ticks', () => {
+    const done = [
+      workout({ routineId: 'str', scheduleDay: 0, date: '2026-11-23' }),
+      workout({ routineId: 'swim', scheduleDay: 2, date: '2026-11-25' }),
     ];
-    expect(weekGrid([programme], week1, []).days[0][0].slot.title).toBe('Strength B');
-    expect(weekGrid([programme], week1, [], -1).days[1][0].state).toBe('skipped');
-    expect(weekGrid([programme], [], [], 5).shown[0].week).toBe(2);
-    expect(weekGrid([{ ...programme, active: false }], [], []).shown).toEqual([]);
+    expect(scheduleWeek(routines, done, '2026-11-30').flat().every((c) => c.state === 'open')).toBe(true);
+    expect(scheduleWeek(routines, done, mon)[0][0].state).toBe('done');
+    // A session on the Sunday belongs to that week, not the next.
+    const sunday = workout({ routineId: 'str', scheduleDay: 4, date: '2026-11-29' });
+    expect(scheduleWeek(routines, [sunday], mon)[4][0].state).toBe('done');
+    expect(scheduleWeek(routines, [sunday], '2026-11-30')[4][0].state).toBe('open');
   });
 
-  it('puts a dated day on its weekday, and an undated one on its day number', () => {
-    const wednesday = '2026-11-25';
-    expect(weekGrid([{ ...programme, startDate: wednesday }], [], []).days[2][0].slot.title).toBe('Strength A');
-    expect(weekGrid([{ ...programme, startDate: wednesday, dated: false }], [], []).days[0][0].slot.title).toBe('Strength A');
+  it('shows skipped and in-progress sessions, with a finished one winning', () => {
+    const skipped = workout({ routineId: 'str', scheduleDay: 0, date: mon, status: 'skipped' });
+    const going = workout({ routineId: 'str', scheduleDay: 2, date: '2026-11-25', status: 'in_progress' });
+    expect(states(scheduleWeek([strength], [skipped, going], mon))).toEqual([
+      ['str:skipped'], [], ['str:resume'], [], ['str:open'], [], [],
+    ]);
+    const redone = workout({ routineId: 'str', scheduleDay: 0, date: mon });
+    expect(scheduleWeek([strength], [redone, skipped], mon)[0][0]).toMatchObject({ state: 'done', workout: redone });
   });
 
-  it('stacks sessions from several programmes on the same day', () => {
-    const other = { ...programme, id: 'p2', slots: [{ week: 1, day: 0, title: 'Swim' }] };
-    expect(weekGrid([programme, other], [], []).days[0].map((c) => c.slot.title)).toEqual(['Strength A', 'Swim']);
+  it('counts a session started outside the week view on the weekday it was done', () => {
+    // Started from the routine's space, with no day card: Friday's session ticks Friday.
+    const friday = workout({ routineId: 'str', date: '2026-11-27' });
+    expect(scheduleWeek([strength], [friday], mon)[4][0].state).toBe('done');
+    // On a day the routine is not scheduled, it ticks nothing.
+    const tuesday = workout({ routineId: 'str', date: '2026-11-24' });
+    expect(scheduleWeek([strength], [tuesday], mon).flat().every((c) => c.state === 'open')).toBe(true);
   });
 });
 
 describe('last session of a routine', () => {
-  it('gives the latest finished session, one line per exercise in plan order', async () => {
+  it('gives the latest finished session, one line per item in the session order', async () => {
     const db = freshDb();
     await db.exercises.bulkAdd([
       { id: 'squat', name: 'Goblet squat', measure: 'weight_reps', links: [] },
@@ -158,30 +214,44 @@ describe('last session of a routine', () => {
       workout({ id: 'new', date: '2026-11-17', routineId: 'r1', items }),
       workout({ id: 'skip', date: '2026-11-20', routineId: 'r1', status: 'skipped', items }),
       workout({ id: 'now', date: '2026-11-24', routineId: 'r1', status: 'in_progress', items }),
+      workout({ id: 'other', date: '2026-11-21', routineId: 'r2', items }),
     ]);
     await db.sets.bulkAdd([
-      { id: '1', workoutId: 'new', exerciseId: 'plank', date: '2026-11-17', setNo: 1, seconds: 45 },
-      { id: '2', workoutId: 'new', exerciseId: 'squat', date: '2026-11-17', setNo: 2, reps: 10, weight: 16 },
-      { id: '3', workoutId: 'new', exerciseId: 'squat', date: '2026-11-17', setNo: 1, reps: 10, weight: 16 },
-      { id: '4', workoutId: 'old', exerciseId: 'squat', date: '2026-11-10', setNo: 1, reps: 8, weight: 12 },
+      { id: '1', workoutId: 'new', exerciseId: 'plank', itemId: 'i2', date: '2026-11-17', setNo: 1, seconds: 45 },
+      { id: '2', workoutId: 'new', exerciseId: 'squat', itemId: 'i1', date: '2026-11-17', setNo: 2, reps: 10, weight: 16 },
+      { id: '3', workoutId: 'new', exerciseId: 'squat', itemId: 'i1', date: '2026-11-17', setNo: 1, reps: 10, weight: 16 },
+      { id: '5', workoutId: 'new', exerciseId: 'squat', itemId: 'i1', date: '2026-11-17', setNo: 3, reps: 10, weight: 16 },
+      { id: '4', workoutId: 'old', exerciseId: 'squat', itemId: 'i1', date: '2026-11-10', setNo: 1, reps: 8, weight: 12 },
     ]);
-    const recap = await lastRoutineSession(db, { routineId: 'r1' }, { excludeWorkoutId: 'now' });
+    const recap = await lastRoutineSession(db, 'r1', { excludeWorkoutId: 'now' });
     expect(recap?.workout.id).toBe('new');
     expect(recap?.lines).toEqual([
-      { exerciseId: 'squat', name: 'Goblet squat', summary: '16 kg × 10, 10' },
-      { exerciseId: 'plank', name: 'Plank', summary: '0:45' },
+      { itemId: 'i1', exerciseId: 'squat', name: 'Goblet squat', summary: '3 × 10 @ 16 kg' },
+      { itemId: 'i2', exerciseId: 'plank', name: 'Plank', summary: '0:45' },
     ]);
-    expect((await lastRoutineSession(db, { routineId: 'r1' }, { excludeWorkoutId: 'new' }))?.workout.id).toBe('old');
+    expect((await lastRoutineSession(db, 'r1', { excludeWorkoutId: 'new' }))?.workout.id).toBe('old');
+    expect(await lastRoutineSession(db, 'nothing')).toBeUndefined();
   });
 
-  it('matches a programme session by title when it has no routine', async () => {
+  it('keeps the same exercise twice in a routine apart, by item', async () => {
     const db = freshDb();
-    await db.workouts.bulkAdd([
-      workout({ id: 'a', programmeId: 'p1', title: 'Long run' }),
-      workout({ id: 'b', programmeId: 'p1', title: 'Intervals' }),
+    await db.exercises.add({ id: 'swing', name: 'Swing', measure: 'weight_reps', links: [] });
+    await db.workouts.add(
+      workout({ id: 'w', routineId: 'r1', items: [{ id: 'a', exerciseId: 'swing' }, { id: 'b', exerciseId: 'swing' }] }),
+    );
+    await db.sets.bulkAdd([
+      { id: '1', workoutId: 'w', exerciseId: 'swing', itemId: 'a', date: '2026-11-23', setNo: 1, reps: 10, weight: 24 },
+      { id: '2', workoutId: 'w', exerciseId: 'swing', itemId: 'b', date: '2026-11-23', setNo: 1, reps: 20, weight: 16 },
     ]);
-    expect((await lastRoutineSession(db, { programmeId: 'p1', title: 'Long run' }))?.workout.id).toBe('a');
-    expect(await lastRoutineSession(db, { programmeId: 'p1', title: 'Tempo run' })).toBeUndefined();
+    expect((await lastRoutineSession(db, 'r1'))?.lines.map((l) => l.summary)).toEqual(['24 kg × 10', '16 kg × 20']);
+  });
+
+  it('writes identical sets compactly and varied ones in full', () => {
+    const s = (setNo: number, reps: number, weight?: number) => ({ id: String(setNo), workoutId: 'w', exerciseId: 'e', date: '2026-11-23', setNo, reps, weight });
+    expect(setsLine([s(1, 10, 16), s(2, 10, 16), s(3, 10, 16)], 'weight_reps')).toBe('3 × 10 @ 16 kg');
+    expect(setsLine([s(1, 10, 16), s(2, 8, 16)], 'weight_reps')).toBe('16 kg × 10, 8');
+    expect(setsLine([s(1, 12), s(2, 12)], 'reps')).toBe('2 × 12');
+    expect(setsLine([s(1, 10, 16)], 'weight_reps')).toBe('16 kg × 10');
   });
 });
 

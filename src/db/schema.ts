@@ -86,6 +86,8 @@ export interface Routine {
   description?: string;
   /** What kind of exercise it is, shown as its icon on the week. */
   activity?: ActivityKey;
+  /** The weekdays it repeats on, every week: 0 = Monday … 6 = Sunday. */
+  days?: number[];
   items: RoutineItem[];
   order: number;
 }
@@ -136,6 +138,11 @@ export interface Workout {
   prescription?: string;
   /** The activity when the session was started, so History keeps it if the plan changes. */
   activity?: ActivityKey;
+  /**
+   * The weekday of the routine's schedule this session is for (0 = Monday). A routine that repeats
+   * on several days needs it to know which day's card a session ticks.
+   */
+  scheduleDay?: number;
   status: WorkoutStatus;
   minutes?: number;
   rpe?: number;

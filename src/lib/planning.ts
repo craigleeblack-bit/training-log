@@ -1,6 +1,6 @@
 import { db, uid, type Programme, type ProgrammeSlot, type Routine, type Workout } from '../db/schema';
 import { closedSlots, isDated, slotDate, slotKey } from '../db/queries';
-import { addDays, isoDate, parseIso } from './dates';
+import { addDays, isoDate, parseIso, weekdayIndex } from './dates';
 
 export interface Day {
   week: number;
@@ -49,6 +49,29 @@ export async function moveProgrammeDay(programmeId: string, from: Day, to: Day):
         else if (w.slotKey === b) w.slotKey = a;
       });
   });
+}
+
+/**
+ * The weekdays each routine falls on in one week of a programme (0 = Monday). Rest days and
+ * sessions without a routine have nothing to repeat, so they are left out.
+ */
+export function weekSchedule(p: Programme, week: number): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  for (const s of p.slots) {
+    if (s.week !== week || s.rest || !s.routineId) continue;
+    const day = isDated(p) ? weekdayIndex(slotDate(p, s)) : s.day;
+    out.set(s.routineId, [...new Set([...(out.get(s.routineId) ?? []), day])].sort((a, b) => a - b));
+  }
+  return out;
+}
+
+/** Make one programme week the weekly schedule: each of its routines repeats on that week's days. */
+export async function applyWeekSchedule(p: Programme, week: number): Promise<number> {
+  const schedule = weekSchedule(p, week);
+  await db.transaction('rw', db.routines, async () => {
+    for (const [id, days] of schedule) await db.routines.update(id, { days });
+  });
+  return schedule.size;
 }
 
 /** A copy of a routine with its own identity, ready to be changed without touching the original. */

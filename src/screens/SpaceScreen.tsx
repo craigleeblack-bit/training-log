@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Programme, type Routine } from '../db/schema';
 import { programmeProgress } from '../db/queries';
-import { isoDate, relativeDay } from '../lib/dates';
+import { isoDate, relativeDay, repeatLabel } from '../lib/dates';
 import { deleteSpace, startWorkout } from '../actions';
 import { Icon, Page, SectionTitle, useFeedback } from '../ui';
 import { SpaceForm } from './Spaces';
@@ -118,8 +118,13 @@ export default function SpaceScreen() {
               <Link to={`/routine/${r.id}`} className="grow">
                 <div className="title">{r.name}</div>
                 <div className="sub">
-                  {r.items.length} exercise{r.items.length === 1 ? '' : 's'} ·{' '}
-                  {r.logStyle === 'sets' ? 'set by set' : 'tick-off'}
+                  {[
+                    repeatLabel(r.days),
+                    `${r.items.length} exercise${r.items.length === 1 ? '' : 's'}`,
+                    r.logStyle === 'sets' ? 'set by set' : 'tick-off',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </div>
               </Link>
               <button

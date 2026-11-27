@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Workout } from '../db/schema';
-import { formatSet, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
+import { formatSet, hasValue, lastTime, loadNumber, repsNumber, setsLine } from '../db/queries';
 import { isoDate, niceDate, relativeDay } from '../lib/dates';
 import { buildWorkoutContext } from '../lib/claude';
 import { BACK_OPTIONS, COLUMNS, RPE, addSet, fmtDuration, removeSet, saveSet, setCount, sidesOf, type NumKey } from '../lib/logging';
@@ -94,7 +94,7 @@ function ExerciseCard({
 
       {last && (
         <div className="last">
-          Last time ({relativeDay(last.date).toLowerCase()}): {summariseSets(last.sets, exercise.measure)}
+          Last time ({relativeDay(last.date).toLowerCase()}): {setsLine(last.sets, exercise.measure)}
         </div>
       )}
 

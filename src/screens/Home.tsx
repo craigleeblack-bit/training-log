@@ -2,59 +2,64 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Space } from '../db/schema';
-import { isDated, lastRoutineSession, slotDate, weekdayIndex, weekGrid, type WeekCell } from '../db/queries';
-import { addDays, isoDate, niceDate, parseIso, relativeDay } from '../lib/dates';
+import { lastRoutineSession, scheduleWeek, type WeekCell } from '../db/queries';
+import { addDays, niceDate, relativeDay, weekRangeLabel, weekStart, weekdayIndex } from '../lib/dates';
 import { activityLabel, activityOf, spaceIconOf, type ActivityKey } from '../lib/activities';
 import { startWorkout } from '../actions';
+import { useToday } from '../useToday';
 import { ActivityIcon, SpaceIcon } from '../icons';
 import { Icon, Page, Sheet } from '../ui';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const cellKey = (c: WeekCell) => `${c.programme.id}:${c.slot.week}-${c.slot.day}`;
-
-/** How far the week in view is from the current one, in words. */
+/** How far the week in view is from this one, in words. */
 function weekWord(offset: number): string {
-  if (offset === 0) return 'This week';
-  if (offset === 1) return 'Next week';
-  if (offset === -1) return 'Last week';
-  return offset > 0 ? `In ${offset} weeks` : `${-offset} weeks back`;
+  if (offset === 0) return 'this week';
+  if (offset === 1) return 'next week';
+  if (offset === -1) return 'last week';
+  return offset > 0 ? `in ${offset} weeks` : `${-offset} weeks ago`;
 }
 
-/** One programme day, opened from the week: what it asks for and what you did last time. */
+/** One routine on one day: what you did last time, and the way into the session. */
 function DaySheet({
   cell,
   space,
   activity,
+  today,
   onClose,
 }: {
   cell: WeekCell;
   space?: Space;
   activity: ActivityKey;
+  today: string;
   onClose: () => void;
 }) {
   const nav = useNavigate();
-  const { programme: p, slot, routine, state, workout } = cell;
+  const { routine, day, date, state, workout } = cell;
   // Wrapped, so "nothing found" can be told apart from "still loading".
   const found = useLiveQuery(
-    async () => ({
-      recap: await lastRoutineSession(
-        db,
-        { routineId: slot.routineId, programmeId: p.id, title: slot.title },
-        { excludeWorkoutId: workout?.id },
-      ),
-    }),
-    [slot.routineId, p.id, slot.title, workout?.id],
+    async () => ({ recap: await lastRoutineSession(db, routine.id, { excludeWorkoutId: workout?.id }) }),
+    [routine.id, workout?.id],
   );
-  const previous = found?.recap;
-  const today = isoDate();
-  const targets = [slot.targetMinutes && `${slot.targetMinutes} min`, slot.targetRpe && `RPE ${slot.targetRpe}`].filter(Boolean).join(', ');
+  const last = found?.recap;
+  const thisMonday = weekStart(today);
+  const pastWeek = date < thisMonday;
+  const futureWeek = date >= addDays(thisMonday, 7);
 
   const start = async () =>
-    nav(`/workout/${await startWorkout({ spaceId: p.spaceId, routine, programme: p, slot, activity })}`);
+    nav(
+      `/workout/${await startWorkout({
+        spaceId: routine.spaceId,
+        routine,
+        activity,
+        scheduleDay: day,
+        // A past week's session is logged on its own day, so it ticks that week.
+        date: pastWeek ? date : undefined,
+      })}`,
+    );
 
   return (
-    <Sheet title={slot.title} onClose={onClose}>
+    <Sheet title={routine.name} onClose={onClose}>
       <div className="day-meta" style={{ ['--space' as string]: space?.color }}>
         <span className="day-act">
           {ActivityIcon[activity]}
@@ -66,70 +71,71 @@ function DaySheet({
             {space.name}
           </span>
         )}
+        <span className="day-act plain">{niceDate(date, today)}</span>
       </div>
-      <p className="sub">
-        {[p.name, `Week ${slot.week} of ${p.weeks}`, isDated(p) ? niceDate(slotDate(p, slot), today) : undefined, targets]
-          .filter(Boolean)
-          .join(' · ')}
-      </p>
-      {slot.prescription && <p className="prescription">{slot.prescription}</p>}
 
       <div className="lasttime">
         <small>Last time</small>
-        {previous ? (
+        {last ? (
           <>
             <b>
-              {relativeDay(previous.workout.date, today)}
-              {previous.workout.minutes != null ? `, ${previous.workout.minutes} min` : ''}
-              {previous.workout.rpe != null ? `, RPE ${previous.workout.rpe}` : ''}
+              {relativeDay(last.workout.date, today)}
+              {last.workout.minutes != null ? `, ${last.workout.minutes} min` : ''}
+              {last.workout.rpe != null ? `, RPE ${last.workout.rpe}` : ''}
             </b>
-            {previous.lines.map((l) => (
-              <div key={l.exerciseId} className="line">
+            {last.lines.map((l) => (
+              <div key={l.itemId} className="line">
                 <span>{l.name}</span>
                 <span>{l.summary}</span>
               </div>
             ))}
-            {!previous.lines.length && <span className="sub">No sets were logged.</span>}
+            {!last.lines.length && <span className="sub">Done, with no sets logged.</span>}
           </>
         ) : (
           <span className="sub">{found ? 'Not done before.' : ' '}</span>
         )}
       </div>
 
-      {state === 'open' && (
-        <button className="btn primary big block" onClick={start}>
-          Start session
-          {Icon.arrow}
-        </button>
-      )}
+      {state === 'open' &&
+        (futureWeek ? (
+          <p className="sub">Coming up {niceDate(date, today)}.</p>
+        ) : (
+          <button className="btn primary big block" onClick={start}>
+            {pastWeek ? `Log it for ${niceDate(date, today)}` : 'Start'}
+            {Icon.arrow}
+          </button>
+        ))}
       {state === 'resume' && workout && (
         <Link to={`/workout/${workout.id}`} className="btn primary big block">
-          Resume session
+          Resume
           {Icon.arrow}
         </Link>
       )}
       {(state === 'done' || state === 'skipped') && workout && (
-        <>
-          <p className="sub">
-            {state === 'done' ? 'Done' : 'Skipped'} {relativeDay(workout.date, today).toLowerCase()}.
-          </p>
-          <Link to={`/workout/${workout.id}`} className="btn block">
-            View session
-          </Link>
-        </>
+        <Link to={`/workout/${workout.id}`} className="btn block">
+          {state === 'done' ? 'Done' : 'Skipped'} {relativeDay(workout.date, today).toLowerCase()}: view
+        </Link>
       )}
-      <Link to={`/programme/${p.id}`} className="btn ghost block">
-        Open the programme
+      <Link to={`/routine/${routine.id}`} className="btn ghost block">
+        Edit the routine
       </Link>
     </Sheet>
   );
 }
 
-/** Start something that is not on the plan: a route, or a session in one of your spaces. */
+/** Things off the schedule: the gym pass, a tracked route, or a session in one of your spaces. */
 function AddSheet({ spaces, onClose }: { spaces: Space[]; onClose: () => void }) {
   return (
     <Sheet title="Something else" onClose={onClose}>
       <div className="card flush">
+        <Link to="/pass" className="row">
+          {Icon.pass}
+          <div className="grow">
+            <div className="title">Gym pass</div>
+            <div className="sub">Show a card or scan a code</div>
+          </div>
+          {Icon.chevRight}
+        </Link>
         <Link to="/track/new" className="row">
           {Icon.route}
           <div className="grow">
@@ -153,69 +159,51 @@ function AddSheet({ spaces, onClose }: { spaces: Space[]; onClose: () => void })
   );
 }
 
-/** The front page: Monday to Sunday of the programme week, one icon per session. */
+/** The front page: Monday to Sunday of the real week, one icon per routine that repeats on each day. */
 export default function Home() {
-  const today = isoDate();
+  const today = useToday();
   const [offset, setOffset] = useState(0);
   const [openKey, setOpenKey] = useState<string>();
   const [adding, setAdding] = useState(false);
 
   const data = useLiveQuery(async () => {
-    const [spaces, routines, programmes, workouts] = await Promise.all([
+    const [spaces, routines, workouts] = await Promise.all([
       db.spaces.orderBy('order').toArray(),
       db.routines.toArray(),
-      db.programmes.toArray(),
       db.workouts.toArray(),
     ]);
-    return { spaces, routines, programmes, workouts };
+    return { spaces, routines, workouts };
   }, []);
 
   if (!data) return null;
-  const { spaces, routines, programmes, workouts } = data;
+  const { spaces, routines, workouts } = data;
   const spaceById = new Map(spaces.map((s) => [s.id, s]));
-  const grid = weekGrid(programmes, workouts, routines, offset);
-  const single = grid.shown.length === 1 ? grid.shown[0] : undefined;
-  const activity = (c: WeekCell) =>
-    activityOf(c.slot, c.routine, { programme: c.programme.name, space: spaceById.get(c.programme.spaceId)?.name });
-
-  // Looking back or ahead stops at the edges of the programmes on show.
-  const canBack = grid.shown.some((s) => s.week > 1);
-  const canAhead = grid.shown.some((s) => s.week < s.programme.weeks);
+  const monday = addDays(weekStart(today), offset * 7);
+  const week = scheduleWeek(routines, workouts, monday);
+  const keyOf = (c: WeekCell) => `${c.routine.id}:${c.day}`;
+  const activity = (c: WeekCell) => activityOf(undefined, c.routine, { space: spaceById.get(c.routine.spaceId)?.name });
   const todayColumn = offset === 0 ? weekdayIndex(today) : -1;
-  // Dates go under the day names when one dated programme is on show.
-  const dateOf = (column: number): string | undefined => {
-    if (!single || !isDated(single.programme)) return undefined;
-    // A programme week can start on any weekday, so Monday may belong to the next calendar week.
-    const start = slotDate(single.programme, { week: single.week, day: 0 });
-    return addDays(start, (column - weekdayIndex(start) + 7) % 7);
-  };
-
+  const anything = routines.some((r) => r.days?.length);
+  const opened = week.flat().find((c) => keyOf(c) === openKey);
   const resume = workouts.filter((w) => w.status === 'in_progress').sort((a, b) => b.startedAt - a.startedAt)[0];
-  const opened = grid.days.flat().find((c) => cellKey(c) === openKey);
-  const doneCount = grid.days.flat().filter((c) => !c.slot.rest && c.state === 'done').length;
-  const totalCount = grid.days.flat().filter((c) => !c.slot.rest).length;
 
-  const kicker = single
-    ? single.complete && offset === 0
-      ? 'Programme complete'
-      : `Week ${single.week} of ${single.programme.weeks}`
-    : grid.shown.length > 1
-      ? `${grid.shown.length} programmes`
-      : undefined;
-
+  const range = weekRangeLabel(monday);
   return (
     <Page
       title="Week"
-      kicker={kicker}
+      kicker={offset === 0 ? range : `${range} · ${weekWord(offset)}`}
       large
       actions={
         <>
-          <button className="icon-btn boxed" aria-label="Start something else" onClick={() => setAdding(true)}>
+          <button className="icon-btn narrow" aria-label="Previous week" onClick={() => setOffset((o) => o - 1)}>
+            {Icon.back}
+          </button>
+          <button className="icon-btn narrow" aria-label="Next week" onClick={() => setOffset((o) => o + 1)}>
+            {Icon.chevRight}
+          </button>
+          <button className="icon-btn boxed" aria-label="Something else: gym pass, route, quick session" onClick={() => setAdding(true)}>
             {Icon.plus}
           </button>
-          <Link to="/pass" className="icon-btn boxed" aria-label="Gym passes and scanner">
-            {Icon.pass}
-          </Link>
           <Link to="/settings" className="icon-btn boxed" aria-label="Settings">
             {Icon.settings}
           </Link>
@@ -232,83 +220,53 @@ export default function Home() {
         </Link>
       )}
 
-      {grid.shown.length > 0 ? (
-        <>
-          <div className="week-nav">
-            <button className="icon-btn" aria-label="Previous week" disabled={!canBack} onClick={() => setOffset((o) => o - 1)}>
-              {Icon.back}
-            </button>
-            <button className="label" disabled={offset === 0} onClick={() => setOffset(0)}>
-              <b>{weekWord(offset)}</b>
-              <small>
-                {doneCount} of {totalCount} done
-              </small>
-            </button>
-            <button className="icon-btn" aria-label="Next week" disabled={!canAhead} onClick={() => setOffset((o) => o + 1)}>
-              {Icon.chevRight}
-            </button>
-          </div>
-
-          <div className="week">
-            {grid.days.map((cells, column) => {
-              const date = dateOf(column);
-              const training = cells.filter((c) => !c.slot.rest);
-              return (
-                <div key={column} className={`wk-day${column === todayColumn ? ' today' : ''}`}>
-                  <span className="wk-name">
-                    {DAY_NAMES[column]}
-                    {date && <small>{parseIso(date).getDate()}</small>}
-                  </span>
-                  {training.length ? (
-                    training.map((c) => {
-                      const a = activity(c);
-                      const space = spaceById.get(c.programme.spaceId);
-                      return (
-                        <button
-                          key={cellKey(c)}
-                          className={`wk-card ${c.state}`}
-                          style={{ ['--space' as string]: space?.color }}
-                          aria-label={`${DAY_NAMES[column]}: ${c.slot.title}, ${activityLabel(a)}${c.state === 'open' ? '' : `, ${c.state === 'resume' ? 'in progress' : c.state}`}`}
-                          onClick={() => setOpenKey(cellKey(c))}
-                        >
-                          {ActivityIcon[a]}
-                          {c.state === 'done' && <span className="wk-badge done">{Icon.check}</span>}
-                          {c.state === 'skipped' && <span className="wk-badge skipped">{Icon.dash}</span>}
-                          {c.state === 'resume' && <span className="wk-badge live" />}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <span className="wk-card rest" aria-label={`${DAY_NAMES[column]}: rest`}>
-                      <span className="wk-dash" />
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
+      {anything ? (
+        <div className="week">
+          {week.map((cells, day) => (
+            <div key={day} className={`wk-day${day === todayColumn ? ' today' : ''}`}>
+              <span className="wk-name">{DAY_NAMES[day]}</span>
+              {cells.length ? (
+                cells.map((c) => {
+                  const a = activity(c);
+                  return (
+                    <button
+                      key={keyOf(c)}
+                      className={`wk-card ${c.state}`}
+                      style={{ ['--space' as string]: spaceById.get(c.routine.spaceId)?.color }}
+                      aria-label={`${DAY_NAMES[day]}: ${c.routine.name}, ${activityLabel(a)}${c.state === 'open' ? '' : `, ${c.state === 'resume' ? 'in progress' : c.state}`}`}
+                      onClick={() => setOpenKey(keyOf(c))}
+                    >
+                      {ActivityIcon[a]}
+                      {c.state === 'done' && <span className="wk-badge done">{Icon.check}</span>}
+                      {c.state === 'skipped' && <span className="wk-badge skipped">{Icon.dash}</span>}
+                      {c.state === 'resume' && <span className="wk-badge live" />}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="wk-card rest" aria-label={`${DAY_NAMES[day]}: nothing`}>
+                  <span className="wk-dash" />
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
       ) : (
         <p className="empty-line">
-          Nothing planned. Set up a programme in{' '}
+          Nothing repeats yet. Open a routine in{' '}
           <Link className="link" to="/plan">
             Plan
-          </Link>
-          {spaces.length ? '' : ', or load a starter file in '}
-          {!spaces.length && (
-            <Link className="link" to="/settings">
-              Settings
-            </Link>
-          )}
-          .
+          </Link>{' '}
+          and choose the days it repeats on.
         </p>
       )}
 
       {opened && (
         <DaySheet
           cell={opened}
-          space={spaceById.get(opened.programme.spaceId)}
+          space={spaceById.get(opened.routine.spaceId)}
           activity={activity(opened)}
+          today={today}
           onClose={() => setOpenKey(undefined)}
         />
       )}

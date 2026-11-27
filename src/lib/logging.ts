@@ -160,6 +160,22 @@ const patchItem = async (workoutId: string, itemId: string, change: (i: RoutineI
   if (w) await db.workouts.update(workoutId, { items: w.items.map((i) => (i.id === itemId ? change(i) : i)) });
 };
 
+/**
+ * Change an exercise's rest between sets, in this session and in the routine it came from, so the
+ * next session starts from it. Gives back whether the routine took it (an exercise added only to
+ * this session has nowhere to go).
+ */
+export async function setItemRest(workoutId: string, itemId: string, seconds: number | undefined): Promise<boolean> {
+  return db.transaction('rw', db.workouts, db.routines, async () => {
+    await patchItem(workoutId, itemId, (i) => ({ ...i, rest: seconds }));
+    const w = await db.workouts.get(workoutId);
+    const r = w?.routineId ? await db.routines.get(w.routineId) : undefined;
+    if (!r?.items.some((i) => i.id === itemId)) return false;
+    await db.routines.update(r.id, { items: r.items.map((i) => (i.id === itemId ? { ...i, rest: seconds } : i)) });
+    return true;
+  });
+}
+
 /** Give an exercise one more set in this session. */
 export async function addSet(workoutId: string, itemId: string): Promise<void> {
   await db.transaction('rw', db.workouts, db.sets, async () => {

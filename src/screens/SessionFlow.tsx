@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Space, type Workout } from '../db/schema';
-import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
+import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber, setsLine } from '../db/queries';
 import { isoDate, niceDate } from '../lib/dates';
 import { countdownPhases } from '../lib/timer';
 import { buildWorkoutContext } from '../lib/claude';
@@ -20,6 +20,7 @@ import {
   saveSet,
   setCount,
   setsDone,
+  setItemRest,
   SIDES,
   sidesOf,
   swapItem,
@@ -108,6 +109,8 @@ function FocusExercise({
   onSetDone,
   groupNote,
   nextNote,
+  rest,
+  onRest,
 }: {
   workout: Workout;
   item: RoutineItem;
@@ -124,6 +127,10 @@ function FocusExercise({
   groupNote?: string;
   /** What follows a logged set: "then rest 1:30", "then Pull-ups". */
   nextNote: string;
+  /** Rest between sets, in seconds. */
+  rest?: number;
+  /** Lengthen or shorten the rest, by seconds. */
+  onRest: (by: number) => void;
 }) {
   const timer = useTimer();
   const { toast, confirm } = useFeedback();
@@ -319,7 +326,7 @@ function FocusExercise({
               {summary && <p>{summary}</p>}
               {last && (
                 <p className="last-line">
-                  Last time: {summariseSets(last.sets, exercise.measure)}, {niceDate(last.date).replace(/^\w+ /, '')}
+                  Last time: {setsLine(last.sets, exercise.measure)}, {niceDate(last.date).replace(/^\w+ /, '')}
                 </p>
               )}
               {groupNote && <p className="group-note">{groupNote}</p>}
@@ -354,8 +361,9 @@ function FocusExercise({
               <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
                 {Icon.minus}
               </button>
-              <button type="button" aria-label="Add a set" onClick={onAddSet}>
+              <button type="button" className="add-set" aria-label="Add a set" onClick={onAddSet}>
                 {Icon.plus}
+                Set
               </button>
             </div>
           </div>
@@ -394,6 +402,20 @@ function FocusExercise({
               </button>
             );
           })}
+          </div>
+        </div>
+
+        <div className="rest-row">
+          <span>
+            Rest <b>{rest ? formatSeconds(rest) : 'none'}</b>
+          </span>
+          <div className="mini-pm">
+            <button type="button" aria-label="15 seconds less rest" disabled={!rest} onClick={() => onRest(-15)}>
+              − 15 s
+            </button>
+            <button type="button" aria-label="15 seconds more rest" onClick={() => onRest(15)}>
+              + 15 s
+            </button>
           </div>
         </div>
 
@@ -454,7 +476,8 @@ function FocusExercise({
           <>
             <button className="btn primary big block spread" onClick={log}>
               <span>
-                Log set {current}
+                {/* One tap logs exactly what is shown: last time's numbers unless changed. */}
+                {cols.some((c) => vals[c.key] != null) ? `Log ${compactSet(vals, exercise.measure)}` : `Log set ${current}`}
                 {sideWord && `, ${sideWord}`}
               </span>
               <span className="then">
@@ -504,7 +527,7 @@ export default function SessionFlow({
 }) {
   const nav = useNavigate();
   const timer = useTimer();
-  const { confirm } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const ask = useAskClaude();
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
   const items = w.items.filter((i) => exerciseById.has(i.exerciseId));
@@ -565,6 +588,14 @@ export default function SessionFlow({
   const restFor = (i: RoutineItem) => i.rest ?? group.find((g) => g.rest)?.rest;
   /** The exercise that follows this one within the round, if any still has sets to do. */
   const turnNext = item ? group.slice(group.indexOf(item) + 1).find((i) => !complete(i)) : undefined;
+
+  /** A different rest for this exercise, kept in the routine too: set it once and it stays. */
+  const changeRest = async (i: RoutineItem, by: number) => {
+    const next = Math.min(600, Math.max(0, (restFor(i) ?? 0) + by)) || undefined;
+    const saved = await setItemRest(w.id, i.id, next);
+    const what = next ? `Rest ${formatSeconds(next)}` : 'No rest';
+    toast(saved ? `${what}, saved for next time.` : `${what} for this session.`);
+  };
 
   /** After a set: on to the next exercise in the round, or rest and go again, or move on. */
   const afterSet = (more: boolean) => {
@@ -704,6 +735,8 @@ export default function SessionFlow({
                 : ''
           }
           onOptions={() => setSheet('options')}
+          rest={restFor(item)}
+          onRest={(by) => void changeRest(item, by)}
         />
       )}
 

@@ -2551,31 +2551,6 @@ button {
   flex: none;
 }
 
-.week-nav {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.week-nav .label {
-  display: grid;
-  justify-items: center;
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--ink);
-}
-
-.week-nav .label small {
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-.week-nav .icon-btn:disabled {
-  opacity: 0.3;
-}
-
 .week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -2867,4 +2842,62 @@ button {
 
 .lasttime .line span:last-child {
   white-space: nowrap;
+}
+
+.icon-btn.narrow {
+  width: 32px;
+}
+
+.header .kicker {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-act.plain {
+  padding-left: 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* The labelled "+ Set" and the rest adjuster in the live session. */
+.mini-pm button.add-set {
+  width: auto;
+  gap: 4px;
+  padding: 0 12px;
+  grid-auto-flow: column;
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+
+.rest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.rest-row b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-row .mini-pm button {
+  width: auto;
+  padding: 0 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.chips.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.chips.days .chip {
+  min-width: 0;
+  padding-inline: 0;
+  justify-content: center;
 }

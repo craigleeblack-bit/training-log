@@ -5,7 +5,8 @@ import { db, uid, type Programme, type ProgrammeSlot, type Routine } from '../db
 import { closedSlots, currentWeek, isDated, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
 import { addDays, dayName, daysBetween, isoDate, niceDate, parseIso } from '../lib/dates';
 import { startWorkout } from '../actions';
-import { copyWeek, moveProgrammeDay, programmeCopy, repeatWeeks, type Day } from '../lib/planning';
+import { applyWeekSchedule, copyWeek, moveProgrammeDay, programmeCopy, repeatWeeks, weekSchedule, type Day } from '../lib/planning';
+import { repeatLabel } from '../lib/dates';
 import { Field, Icon, IconPicker, Page, Sheet, parseNumber, useFeedback } from '../ui';
 import { activityOf, knownActivity } from '../lib/activities';
 import { ACTIVITY_OPTIONS, ActivityIcon } from '../icons';
@@ -305,9 +306,24 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
   const duplicate = async () => {
     const copy = programmeCopy(p, today);
     await db.programmes.add(copy);
-    toast(dated ? 'Copied. Set its start date, then tick Show on the Week screen.' : 'Copied. Tick Show on the Week screen to follow it.');
+    toast(dated ? 'Copied. Set its start date to use it.' : 'Copied.');
     nav(`/programme/${copy.id}`);
   };
+
+  /** Turn the week in view into the weekly schedule the Week screen repeats. */
+  const makeSchedule = async () => {
+    const schedule = weekSchedule(p, sel.week);
+    const lines = [...schedule].map(([rid, days]) => `${routines.find((r) => r.id === rid)?.name ?? 'A routine'}: ${repeatLabel(days)}`);
+    const ok = await confirm({
+      title: `Repeat week ${sel.week} every week?`,
+      body: `${lines.join('. ')}. These routines will show on the Week screen on these days from now on, replacing the days they had.`,
+      action: 'Use as my schedule',
+    });
+    if (!ok) return;
+    const n = await applyWeekSchedule(p, sel.week);
+    toast(`${n} routine${n === 1 ? '' : 's'} now repeat every week.`);
+  };
+  const scheduleCount = weekSchedule(p, sel.week).size;
 
   const remove = async () => {
     const ok = await confirm({
@@ -354,7 +370,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             <p className="sub">
               {dated
                 ? 'Each day falls on a date, from the start date on.'
-                : 'Weeks run Monday to Sunday in order. The Week screen moves on once every session in a week is done or skipped.'}
+                : 'Weeks run Monday to Sunday, one after another, at your own pace.'}
             </p>
             <div className="grid-2">
               {dated && (
@@ -375,7 +391,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             </div>
             <label className="inline">
               <input type="checkbox" checked={p.active} onChange={(e) => patch({ active: e.target.checked })} />
-              Show on the Week screen
+              Active
             </label>
             <Field label="Notes">
               <textarea defaultValue={p.notes ?? ''} onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })} />
@@ -537,6 +553,12 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
           </section>
         )}
 
+        {!editMode && scheduleCount > 0 && (
+          <button className="btn block" onClick={makeSchedule}>
+            Use week {sel.week} as my weekly schedule
+          </button>
+        )}
+
         {root && !editMode && <PlanLinks />}
         {root && !editMode && <SpacesSection />}
 
@@ -646,7 +668,10 @@ export function PlanScreen() {
         <section className="hero">
           <div>
             <h2 className="long">No programme yet</h2>
-            <p className="lede">A programme lays your sessions out week by week, and the Week screen follows it.</p>
+            <p className="lede">
+              A programme lays sessions out over several weeks. For the same routines every week, choose the days in each
+              routine instead.
+            </p>
           </div>
           {spaces.map((s) => (
             <button key={s.id} className="btn block" onClick={() => create(s.id)}>
