@@ -2358,39 +2358,6 @@ button {
   resize: vertical;
 }
 
-/* ── Plan ────────────────────────────────────────────────── */
-.switcher {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-}
-
-.switcher .name {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  font-size: 1.12rem;
-  font-weight: 650;
-}
-
-.switcher .name span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.switcher .ico {
-  color: var(--muted);
-}
-
 .cal {
   display: grid;
   gap: 4px;
@@ -2900,4 +2867,72 @@ button {
   min-width: 0;
   padding-inline: 0;
   justify-content: center;
+}
+
+/* ── Plan: the week that repeats ─────────────────────────── */
+.plan-lede {
+  margin-top: -6px;
+}
+
+.plan-day {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 4px 6px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.plan-day:last-child {
+  border-bottom: 0;
+}
+
+.plan-dayname {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px 12px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.plan-chip .ico {
+  width: 20px;
+  height: 20px;
+  color: var(--space, var(--accent));
+}
+
+.plan-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-rest {
+  font-size: 0.86rem;
+  color: var(--faint);
+}
+
+.plan-day .icon-btn {
+  color: var(--muted);
 }

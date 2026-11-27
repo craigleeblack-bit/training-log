@@ -51,6 +51,30 @@ export async function moveProgrammeDay(programmeId: string, from: Day, to: Day):
   });
 }
 
+/* ── The weekly schedule: which weekdays each routine repeats on ── */
+
+const tidyDays = (days: number[]): number[] | undefined => {
+  const out = [...new Set(days)].filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b);
+  return out.length ? out : undefined;
+};
+
+/** A routine's days with one more. */
+export const withDay = (days: number[] | undefined, day: number): number[] | undefined => tidyDays([...(days ?? []), day]);
+
+/** A routine's days with one taken off. Undefined once none are left. */
+export const withoutDay = (days: number[] | undefined, day: number): number[] | undefined =>
+  tidyDays((days ?? []).filter((d) => d !== day));
+
+/** A routine moved from one weekday to another. Moving onto a day it already has just drops the old one. */
+export const movedDay = (days: number[] | undefined, from: number, to: number): number[] | undefined =>
+  tidyDays([...(days ?? []).filter((d) => d !== from), to]);
+
+/** Monday to Sunday, each with the routines that repeat on it, in their own order. */
+export function routinesByDay<R extends Pick<Routine, 'days' | 'order' | 'name'>>(routines: R[]): R[][] {
+  const sorted = [...routines].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  return Array.from({ length: 7 }, (_, day) => sorted.filter((r) => r.days?.includes(day)));
+}
+
 /**
  * The weekdays each routine falls on in one week of a programme (0 = Monday). Rest days and
  * sessions without a routine have nothing to repeat, so they are left out.

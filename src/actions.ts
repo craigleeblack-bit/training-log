@@ -73,6 +73,21 @@ export async function startWorkout({ spaceId, routine, programme, slot, title, a
   return workout.id;
 }
 
+/** A new, empty routine in a space, optionally already on some weekdays. Gives back its id. */
+export async function newRoutine(spaceId: string, days?: number[]): Promise<string> {
+  const order = await db.routines.where('spaceId').equals(spaceId).count();
+  const r: Routine = { id: uid(), spaceId, name: 'New routine', logStyle: 'sets', items: [], order, days: days?.length ? days : undefined };
+  await db.routines.add(r);
+  return r.id;
+}
+
+/** A new programme in a space, following weeks in order rather than calendar dates. Gives back its id. */
+export async function newProgramme(spaceId: string): Promise<string> {
+  const p: Programme = { id: uid(), spaceId, name: 'New programme', startDate: isoDate(), weeks: 4, slots: [], active: true, dated: false };
+  await db.programmes.add(p);
+  return p.id;
+}
+
 export async function deleteWorkout(id: string): Promise<void> {
   await db.transaction('rw', db.workouts, db.sets, async () => {
     await db.sets.where('workoutId').equals(id).delete();

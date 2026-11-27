@@ -13,7 +13,11 @@ import {
   routineFromWorkout,
   shiftMonth,
   applyWeekSchedule,
+  movedDay,
+  routinesByDay,
   weekSchedule,
+  withDay,
+  withoutDay,
 } from './planning';
 
 const slots: ProgrammeSlot[] = [
@@ -123,6 +127,26 @@ describe('calendar', () => {
 
   it('keeps a copy on or off calendar dates as the original was', () => {
     expect(programmeCopy({ ...programme, dated: false }).dated).toBe(false);
+  });
+});
+
+describe('editing the weekly schedule', () => {
+  it('adds, takes off and moves days, keeping them sorted and unique', () => {
+    expect(withDay(undefined, 3)).toEqual([3]);
+    expect(withDay([4, 0], 2)).toEqual([0, 2, 4]);
+    expect(withDay([0, 2], 2)).toEqual([0, 2]);
+    expect(withoutDay([0, 2], 2)).toEqual([0]);
+    // The last day off leaves no schedule at all, not an empty list.
+    expect(withoutDay([2], 2)).toBeUndefined();
+    expect(movedDay([0, 2, 4], 0, 1)).toEqual([1, 2, 4]);
+    // Onto a day it already has: the two become one.
+    expect(movedDay([0, 2, 4], 0, 2)).toEqual([2, 4]);
+  });
+
+  it('lists each day’s routines in their own order', () => {
+    const r = (name: string, order: number, days?: number[]) => ({ name, order, days });
+    const byDay = routinesByDay([r('B', 1, [0, 3]), r('A', 0, [0]), r('Off', 2)]);
+    expect(byDay.map((d) => d.map((x) => x.name))).toEqual([['A', 'B'], [], [], ['B'], [], [], []]);
   });
 });
 

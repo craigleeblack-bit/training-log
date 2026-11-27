@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, uid, type Programme, type ProgrammeSlot, type Routine } from '../db/schema';
+import { db, type Programme, type ProgrammeSlot, type Routine } from '../db/schema';
 import { closedSlots, currentWeek, isDated, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
 import { addDays, dayName, daysBetween, isoDate, niceDate, parseIso } from '../lib/dates';
 import { startWorkout } from '../actions';
@@ -10,7 +10,6 @@ import { repeatLabel } from '../lib/dates';
 import { Field, Icon, IconPicker, Page, Sheet, parseNumber, useFeedback } from '../ui';
 import { activityOf, knownActivity } from '../lib/activities';
 import { ACTIVITY_OPTIONS, ActivityIcon } from '../icons';
-import { SpacesSection } from './Spaces';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -130,29 +129,6 @@ function SlotForm({
   );
 }
 
-/** The other places the Plan tab leads to. */
-function PlanLinks() {
-  const links = [
-    { to: '/calendar', title: 'Calendar', sub: 'Every space, month by month', icon: Icon.plan },
-    { to: '/progress', title: 'Progress', sub: 'Volume, records and consistency', icon: Icon.chart },
-    { to: '/history', title: 'History', sub: 'Every session you have logged', icon: Icon.clock },
-  ];
-  return (
-    <div className="card flush">
-      {links.map((l) => (
-        <Link key={l.to} to={l.to} className="row">
-          {l.icon}
-          <div className="grow">
-            <div className="title">{l.title}</div>
-            <div className="sub">{l.sub}</div>
-          </div>
-          {Icon.chevRight}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 /** Copy one week over others, or repeat a block of weeks to the end. */
 function WeekCopy({ p, onApply, onClose }: { p: Programme; onApply: (slots: ProgrammeSlot[]) => void; onClose: () => void }) {
   const weeks = Array.from({ length: p.weeks }, (_, i) => i + 1);
@@ -222,11 +198,8 @@ function WeekCopy({ p, onApply, onClose }: { p: Programme; onApply: (slots: Prog
   );
 }
 
-/**
- * A programme as a calendar: one row per week, one mark per day, and a card for the selected day.
- * `root` is the Plan tab itself (no back button, and the programme can be switched).
- */
-function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onSwitch?: () => void }) {
+/** A programme as a calendar: one row per week, one mark per day, and a card for the selected day. */
+function ProgrammeView({ id }: { id: string }) {
   const nav = useNavigate();
   const { confirm, toast } = useFeedback();
   const [editMode, setEditMode] = useState(false);
@@ -334,8 +307,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
     });
     if (ok) {
       await db.programmes.delete(id);
-      if (root) setEditMode(false);
-      else nav(-1);
+      nav(-1);
     }
   };
 
@@ -348,10 +320,9 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
   return (
     <div style={{ ['--space' as string]: space?.color }}>
       <Page
-        title={root ? 'Plan' : p.name}
-        kicker={root ? undefined : space?.name}
-        large={root}
-        back={!root}
+        title={p.name}
+        kicker={space?.name}
+        back="/plan"
         actions={
           <button className="btn small" onClick={() => setEditMode((v) => !v)}>
             {editMode ? 'Done' : 'Edit'}
@@ -408,23 +379,6 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
           </div>
         ) : (
           <div className="card stack">
-            {root &&
-              (onSwitch ? (
-                <button className="switcher" aria-label={`${p.name}. Switch programme`} onClick={onSwitch}>
-                  <span className="name">
-                    <span className="dot" />
-                    <span>{p.name}</span>
-                  </span>
-                  {Icon.chevDown}
-                </button>
-              ) : (
-                <div className="switcher">
-                  <span className="name">
-                    <span className="dot" />
-                    <span>{p.name}</span>
-                  </span>
-                </div>
-              ))}
             <div className="progress" role="img" aria-label={`${progress.done} of ${progress.total} sessions done`}>
               <i style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
             </div>
@@ -559,8 +513,6 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
           </button>
         )}
 
-        {root && !editMode && <PlanLinks />}
-        {root && !editMode && <SpacesSection />}
 
         {editMode && (
           <button className="btn ghost danger" onClick={remove}>
@@ -617,97 +569,4 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
 export default function ProgrammeScreen() {
   const { id = '' } = useParams();
   return <ProgrammeView key={id} id={id} />;
-}
-
-const PLAN_KEY = 'plan-programme';
-
-function recall(): string | undefined {
-  try {
-    return sessionStorage.getItem(PLAN_KEY) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The Plan tab: the programme you are following, with a way to switch between programmes. */
-export function PlanScreen() {
-  const nav = useNavigate();
-  const [chosen, setChosen] = useState(recall);
-  const [switching, setSwitching] = useState(false);
-
-  const data = useLiveQuery(async () => {
-    const [programmes, spaces] = await Promise.all([db.programmes.toArray(), db.spaces.orderBy('order').toArray()]);
-    return { programmes, spaces };
-  }, []);
-  if (!data) return null;
-  const { programmes, spaces } = data;
-
-  // Active programmes first, then the most recently started.
-  const sorted = [...programmes].sort((a, b) => Number(b.active) - Number(a.active) || b.startDate.localeCompare(a.startDate));
-  const current = sorted.find((p) => p.id === chosen) ?? sorted[0];
-
-  const choose = (id: string) => {
-    setChosen(id);
-    setSwitching(false);
-    try {
-      sessionStorage.setItem(PLAN_KEY, id);
-    } catch {
-      /* private mode: the choice simply lasts until the tab is left */
-    }
-  };
-
-  const create = async (spaceId: string) => {
-    const p: Programme = { id: uid(), spaceId, name: 'New programme', startDate: isoDate(), weeks: 4, slots: [], active: true, dated: false };
-    await db.programmes.add(p);
-    nav(`/programme/${p.id}`);
-  };
-
-  if (!current) {
-    return (
-      <Page title="Plan" large>
-        <section className="hero">
-          <div>
-            <h2 className="long">No programme yet</h2>
-            <p className="lede">
-              A programme lays sessions out over several weeks. For the same routines every week, choose the days in each
-              routine instead.
-            </p>
-          </div>
-          {spaces.map((s) => (
-            <button key={s.id} className="btn block" onClick={() => create(s.id)}>
-              New programme in {s.name}
-            </button>
-          ))}
-          {!spaces.length && <p className="sub">Add a space below first: where the sessions happen.</p>}
-        </section>
-        <PlanLinks />
-        <SpacesSection />
-      </Page>
-    );
-  }
-
-  return (
-    <>
-      <ProgrammeView key={current.id} id={current.id} root onSwitch={sorted.length > 1 ? () => setSwitching(true) : undefined} />
-      {switching && (
-        <Sheet title="Programmes" onClose={() => setSwitching(false)}>
-          <div className="card flush">
-            {sorted.map((p) => {
-              const space = spaces.find((s) => s.id === p.spaceId);
-              return (
-                <button key={p.id} className="row" aria-current={p.id === current.id ? 'true' : undefined} onClick={() => choose(p.id)}>
-                  <span className="dot" style={{ ['--space' as string]: space?.color }} />
-                  <div className="grow">
-                    <div className="title">{p.name}</div>
-                    <div className="sub">{[space?.name, `${p.weeks} weeks`].filter(Boolean).join(', ')}</div>
-                  </div>
-                  {p.id === current.id && <span className="badge ok">Showing</span>}
-                </button>
-              );
-            })}
-          </div>
-        </Sheet>
-      )}
-    </>
-  );
 }
