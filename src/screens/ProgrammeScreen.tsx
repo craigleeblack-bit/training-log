@@ -2,11 +2,16 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Programme, type ProgrammeSlot, type Routine } from '../db/schema';
-import { closedSlots, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
+import { closedSlots, currentWeek, isDated, nextSlot, programmeProgress, slotDate, slotKey } from '../db/queries';
 import { addDays, dayName, daysBetween, isoDate, niceDate, parseIso } from '../lib/dates';
 import { startWorkout } from '../actions';
 import { copyWeek, moveProgrammeDay, programmeCopy, repeatWeeks, type Day } from '../lib/planning';
-import { Field, Icon, Page, Sheet, parseNumber, useFeedback } from '../ui';
+import { Field, Icon, IconPicker, Page, Sheet, parseNumber, useFeedback } from '../ui';
+import { activityOf, knownActivity } from '../lib/activities';
+import { ACTIVITY_OPTIONS, ActivityIcon } from '../icons';
+import { SpacesSection } from './Spaces';
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 function SlotForm({
   slot,
@@ -17,9 +22,12 @@ function SlotForm({
   onClose,
   days,
   onMove,
+  context,
 }: {
   slot: ProgrammeSlot;
   routines: Routine[];
+  /** Names the activity guess can fall back on. */
+  context: { programme?: string; space?: string };
   dateLabel: string;
   onSave: (s: ProgrammeSlot) => void;
   onClear: () => void;
@@ -30,6 +38,10 @@ function SlotForm({
 }) {
   const [s, setS] = useState(slot);
   const set = (changes: Partial<ProgrammeSlot>) => setS((prev) => ({ ...prev, ...changes }));
+  const routine = routines.find((r) => r.id === s.routineId);
+  // What the day would be without a choice of its own: the routine's activity, or a guess.
+  const inherited = activityOf({ ...s, activity: undefined, rest: false }, routine, context);
+  const activity = knownActivity(s.activity) ?? inherited;
   return (
     <Sheet title={`Week ${slot.week}, ${dateLabel}`} onClose={onClose}>
       <Field label="Session name">
@@ -51,6 +63,15 @@ function SlotForm({
           ))}
         </select>
       </Field>
+      {!s.rest && (
+        <IconPicker
+          label="Activity"
+          options={ACTIVITY_OPTIONS}
+          value={activity}
+          onChange={(k) => set({ activity: k === inherited ? undefined : k })}
+          hint={s.activity ? undefined : routine?.activity ? 'From the routine' : 'Guessed from the name'}
+        />
+      )}
       <Field label="Prescription for this day">
         <textarea value={s.prescription ?? ''} onChange={(e) => set({ prescription: e.target.value })} />
       </Field>
@@ -238,10 +259,26 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
   const patch = (changes: Partial<Programme>) => db.programmes.update(id, changes);
   const find = (d: Day) => p.slots.find((s) => s.week === d.week && s.day === d.day);
 
+  const dated = isDated(p);
   const offset = daysBetween(p.startDate, today);
-  const running = offset >= 0 && offset < p.weeks * 7;
-  const thisWeek = running ? Math.floor(offset / 7) + 1 : undefined;
-  const weekLabel = offset < 0 ? `Starts ${niceDate(p.startDate, today)}` : running ? `Week ${thisWeek} of ${p.weeks}` : 'Finished';
+  const running = dated && offset >= 0 && offset < p.weeks * 7;
+  const upTo = currentWeek(p, closed);
+  // Dated, the calendar says which week it is; otherwise it is the first week with a session still open.
+  const thisWeek = dated ? (running ? Math.floor(offset / 7) + 1 : undefined) : upTo;
+  const finished = progress.total > 0 && !nextSlot(p, workouts);
+  const weekLabel = dated
+    ? offset < 0
+      ? `Starts ${niceDate(p.startDate, today)}`
+      : running
+        ? `Week ${thisWeek} of ${p.weeks}`
+        : 'Finished'
+    : finished
+      ? 'Complete'
+      : `Week ${upTo} of ${p.weeks}`;
+  /** How a day is named: its date when the programme is dated, else its weekday. */
+  const dayLabel = (d: Day): string => (dated ? niceDate(slotDate(p, d), today) : WEEKDAYS[d.day]);
+  const activityFor = (s: ProgrammeSlot) =>
+    activityOf(s, routines.find((r) => r.id === s.routineId), { programme: p.name, space: space?.name });
 
   // The day in view: the one tapped, else today, else the next session still to do.
   const upcoming = nextSlot(p, workouts);
@@ -268,7 +305,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
   const duplicate = async () => {
     const copy = programmeCopy(p, today);
     await db.programmes.add(copy);
-    toast('Copied. Set its start date, then tick Show on the Today screen.');
+    toast(dated ? 'Copied. Set its start date, then tick Show on the Week screen.' : 'Copied. Tick Show on the Week screen to follow it.');
     nav(`/programme/${copy.id}`);
   };
 
@@ -310,10 +347,21 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             <Field label="Name">
               <input defaultValue={p.name} onBlur={(e) => e.target.value.trim() && patch({ name: e.target.value.trim() })} />
             </Field>
+            <label className="inline">
+              <input type="checkbox" checked={dated} onChange={(e) => patch({ dated: e.target.checked })} />
+              Calendar dates
+            </label>
+            <p className="sub">
+              {dated
+                ? 'Each day falls on a date, from the start date on.'
+                : 'Weeks run Monday to Sunday in order. The Week screen moves on once every session in a week is done or skipped.'}
+            </p>
             <div className="grid-2">
-              <Field label="Week 1 starts">
-                <input type="date" value={p.startDate} onChange={(e) => e.target.value && patch({ startDate: e.target.value })} />
-              </Field>
+              {dated && (
+                <Field label="Week 1 starts">
+                  <input type="date" value={p.startDate} onChange={(e) => e.target.value && patch({ startDate: e.target.value })} />
+                </Field>
+              )}
               <Field label="Weeks">
                 <input
                   inputMode="numeric"
@@ -327,7 +375,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             </div>
             <label className="inline">
               <input type="checkbox" checked={p.active} onChange={(e) => patch({ active: e.target.checked })} />
-              Show on the Today screen
+              Show on the Week screen
             </label>
             <Field label="Notes">
               <textarea defaultValue={p.notes ?? ''} onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })} />
@@ -377,7 +425,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
         <div className="cal">
           <div className="cal-head" aria-hidden>
             {Array.from({ length: 7 }, (_, day) => (
-              <span key={day}>{dayName(addDays(p.startDate, day))[0]}</span>
+              <span key={day}>{dated ? dayName(addDays(p.startDate, day))[0] : WEEKDAYS[day][0]}</span>
             ))}
           </div>
           {Array.from({ length: p.weeks }, (_, w) => w + 1).map((week) => (
@@ -388,19 +436,38 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
                 const status = s ? closed.get(slotKey(s))?.status : undefined;
                 const training = !!s && !s.rest;
                 const mark =
-                  status === 'done' ? 'done' : status === 'skipped' ? 'skipped' : date === today ? 'today' : training ? 'planned' : '';
+                  status === 'done'
+                    ? 'done'
+                    : status === 'skipped'
+                      ? 'skipped'
+                      : dated && date === today
+                        ? 'today'
+                        : training
+                          ? 'planned'
+                          : '';
+                // Training days show what they are; the date moves under the mark when there is one.
+                const content =
+                  status === 'done'
+                    ? Icon.check
+                    : status === 'skipped'
+                      ? Icon.dash
+                      : training
+                        ? ActivityIcon[activityFor(s)]
+                        : dated
+                          ? parseIso(date).getDate()
+                          : null;
+                const dateBelow = dated && (training || !!status);
                 const isSel = !editMode && sel.week === week && sel.day === day;
                 return (
                   <button
                     key={day}
                     className={`cal-day${isSel ? ' sel' : ''}`}
                     aria-pressed={isSel}
-                    aria-label={`${niceDate(date, today)}: ${s ? s.title : 'nothing planned'}${status ? `, ${status}` : ''}`}
+                    aria-label={`Week ${week}, ${dayLabel({ week, day })}: ${s ? s.title : 'nothing planned'}${status ? `, ${status}` : ''}`}
                     onClick={() => (editMode ? setEditing({ week, day }) : setPicked({ week, day }))}
                   >
-                    <span className={`daymark ${mark}`}>
-                      {status === 'done' ? Icon.check : status === 'skipped' ? Icon.dash : parseIso(date).getDate()}
-                    </span>
+                    <span className={`daymark ${mark}`}>{content}</span>
+                    {dateBelow && <span className="cal-date">{parseIso(date).getDate()}</span>}
                   </button>
                 );
               })}
@@ -432,8 +499,14 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
             <div className="top">
               <div>
                 <small>
-                  {selDate === today ? 'Today, ' : ''}
-                  {niceDate(selDate, today)}
+                  {dated ? (
+                    <>
+                      {selDate === today ? 'Today, ' : ''}
+                      {niceDate(selDate, today)}
+                    </>
+                  ) : (
+                    `Week ${sel.week}, ${WEEKDAYS[sel.day]}`
+                  )}
                 </small>
                 <h2>{slot ? slot.title : 'Nothing planned'}</h2>
                 {targets && <span className="sub">{targets}</span>}
@@ -465,6 +538,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
         )}
 
         {root && !editMode && <PlanLinks />}
+        {root && !editMode && <SpacesSection />}
 
         {editMode && (
           <button className="btn ghost danger" onClick={remove}>
@@ -488,7 +562,8 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
           <SlotForm
             slot={editingSlot}
             routines={routines}
-            dateLabel={niceDate(slotDate(p, editing), today)}
+            context={{ programme: p.name, space: space?.name }}
+            dateLabel={dayLabel(editing)}
             onClose={() => setEditing(undefined)}
             onSave={saveSlot}
             days={
@@ -497,7 +572,7 @@ function ProgrammeView({ id, root, onSwitch }: { id: string; root?: boolean; onS
                     .filter((d) => !(d.week === editing.week && d.day === editing.day))
                     .map((d) => {
                       const taken = find(d);
-                      return { ...d, label: `Week ${d.week}, ${niceDate(slotDate(p, d), today)}${taken ? ` (swap with ${taken.title})` : ''}` };
+                      return { ...d, label: `Week ${d.week}, ${dayLabel(d)}${taken ? ` (swap with ${taken.title})` : ''}` };
                     })
                 : []
             }
@@ -560,7 +635,7 @@ export function PlanScreen() {
   };
 
   const create = async (spaceId: string) => {
-    const p: Programme = { id: uid(), spaceId, name: 'New programme', startDate: isoDate(), weeks: 4, slots: [], active: true };
+    const p: Programme = { id: uid(), spaceId, name: 'New programme', startDate: isoDate(), weeks: 4, slots: [], active: true, dated: false };
     await db.programmes.add(p);
     nav(`/programme/${p.id}`);
   };
@@ -571,20 +646,17 @@ export function PlanScreen() {
         <section className="hero">
           <div>
             <h2 className="long">No programme yet</h2>
-            <p className="lede">A programme lays your sessions out week by week, and Today shows the next one.</p>
+            <p className="lede">A programme lays your sessions out week by week, and the Week screen follows it.</p>
           </div>
           {spaces.map((s) => (
             <button key={s.id} className="btn block" onClick={() => create(s.id)}>
               New programme in {s.name}
             </button>
           ))}
-          {!spaces.length && (
-            <Link className="btn block" to="/">
-              Create a space first
-            </Link>
-          )}
+          {!spaces.length && <p className="sub">Add a space below first: where the sessions happen.</p>}
         </section>
         <PlanLinks />
+        <SpacesSection />
       </Page>
     );
   }

@@ -1,5 +1,6 @@
-import { TABLES, type AppDB, type Exercise, type TableName } from './schema';
+import { TABLES, type AppDB, type Exercise, type Routine, type Space, type TableName } from './schema';
 import { guessCategory } from '../lib/categories';
+import { guessActivity, guessSpaceIcon } from '../lib/activities';
 
 export const BACKUP_APP = 'training-log';
 /** 2 added timers, passes and tracks. Older files simply lack them. */
@@ -58,6 +59,18 @@ export async function importBackup(db: AppDB, raw: unknown, mode: ImportMode = '
       .filter((e) => !e.category)
       .modify((e: Exercise) => {
         e.category = guessCategory(e.name, e.equipment);
+      });
+    // …nor icons for spaces or activities for routines.
+    await db.spaces
+      .filter((s) => !s.icon)
+      .modify((s: Space) => {
+        s.icon = guessSpaceIcon(s.name);
+      });
+    const spaceName = new Map((await db.spaces.toArray()).map((s) => [s.id, s.name]));
+    await db.routines
+      .filter((r) => !r.activity)
+      .modify((r: Routine) => {
+        r.activity = guessActivity(r.name, spaceName.get(r.spaceId));
       });
   });
   return count;

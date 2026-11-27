@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import dexieCloud from 'dexie-cloud-addon';
 import { SYNC_URL } from '../sync';
 import { guessCategory, type ExerciseCategory } from '../lib/categories';
+import { guessActivity, guessSpaceIcon, type ActivityKey, type SpaceIconKey } from '../lib/activities';
 import { DEFAULT_TIMERS, type TimerSpec } from '../lib/timer';
 
 /** How an exercise is measured, which decides the inputs shown when logging a set. */
@@ -19,6 +20,8 @@ export interface Space {
   id: string;
   name: string;
   color: string;
+  /** Where it is: home, gym, pool… */
+  icon?: SpaceIconKey;
   order: number;
 }
 
@@ -81,6 +84,8 @@ export interface Routine {
   name: string;
   logStyle: LogStyle;
   description?: string;
+  /** What kind of exercise it is, shown as its icon on the week. */
+  activity?: ActivityKey;
   items: RoutineItem[];
   order: number;
 }
@@ -94,14 +99,21 @@ export interface ProgrammeSlot {
   targetMinutes?: string;
   targetRpe?: string;
   rest?: boolean;
+  /** This day's own activity, overriding the routine's. */
+  activity?: ActivityKey;
 }
 
 export interface Programme {
   id: string;
   spaceId: string;
   name: string;
-  /** ISO date (YYYY-MM-DD) of week 1, day 0. */
+  /** ISO date (YYYY-MM-DD) of week 1, day 0. Only used when the programme is dated. */
   startDate: string;
+  /**
+   * Whether the programme is tied to calendar dates. Undefined counts as dated, as programmes were
+   * before this existed. Undated, it is a sequence: day 0 is a Monday and you move on when a week is done.
+   */
+  dated?: boolean;
   weeks: number;
   slots: ProgrammeSlot[];
   active: boolean;
@@ -122,6 +134,8 @@ export interface Workout {
   slotKey?: string;
   title: string;
   prescription?: string;
+  /** The activity when the session was started, so History keeps it if the plan changes. */
+  activity?: ActivityKey;
   status: WorkoutStatus;
   minutes?: number;
   rpe?: number;
@@ -267,6 +281,25 @@ export class AppDB extends Dexie {
             e.category ??= guessCategory(e.name, e.equipment);
           });
         await tx.table<TimerPreset>('timers').bulkPut(DEFAULT_TIMERS);
+      });
+    // Spaces get an icon and routines an activity, guessed from their names.
+    this.version(3)
+      .stores({})
+      .upgrade(async (tx) => {
+        const spaces = await tx.table<Space>('spaces').toArray();
+        const spaceName = new Map(spaces.map((s) => [s.id, s.name]));
+        await tx
+          .table<Space>('spaces')
+          .toCollection()
+          .modify((s) => {
+            s.icon ??= guessSpaceIcon(s.name);
+          });
+        await tx
+          .table<Routine>('routines')
+          .toCollection()
+          .modify((r) => {
+            r.activity ??= guessActivity(r.name, spaceName.get(r.spaceId));
+          });
       });
     // A brand-new database skips upgrades, so it gets the starter timers here.
     this.on('populate', (tx) => {

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, uid, type Programme, type ProgrammeSlot, type Routine, type Workout } from './db/schema';
 import { slotKey } from './db/queries';
 import { isoDate } from './lib/dates';
+import { activityOf, type ActivityKey } from './lib/activities';
 import { CLAUDE_URL_KEY, copyText, normaliseClaudeUrl } from './lib/claude';
 import { useFeedback } from './ui';
 
@@ -21,10 +22,12 @@ interface StartArgs {
   slot?: ProgrammeSlot;
   /** What to call a session that comes from neither a routine nor a programme. */
   title?: string;
+  /** The kind of exercise, when the caller has already worked it out. */
+  activity?: ActivityKey;
 }
 
 /** Start a workout, or resume the unfinished one for the same routine or programme slot. */
-export async function startWorkout({ spaceId, routine, programme, slot, title }: StartArgs): Promise<string> {
+export async function startWorkout({ spaceId, routine, programme, slot, title, activity }: StartArgs): Promise<string> {
   const key = slot ? slotKey(slot) : undefined;
   const open = await db.workouts.where('status').equals('in_progress').toArray();
   const existing = open.find((w) =>
@@ -47,6 +50,7 @@ export async function startWorkout({ spaceId, routine, programme, slot, title }:
     programmeId: programme?.id,
     slotKey: key,
     title: slot?.title ?? routine?.name ?? title ?? 'Quick session',
+    activity: activity ?? (slot || routine ? activityOf(slot ?? { title: '' }, routine, { programme: programme?.name }) : undefined),
     prescription:
       [slot?.prescription ?? routine?.description, target && `Target: ${target}`].filter(Boolean).join('\n\n') ||
       undefined,

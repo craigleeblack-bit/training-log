@@ -523,34 +523,6 @@ button {
   box-shadow: var(--shadow);
 }
 
-.hero-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.space-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--ink);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.space-chip .dot {
-  width: 10px;
-  height: 10px;
-}
-
 .hero h2 {
   font-size: 2.5rem;
   font-weight: 700;
@@ -675,51 +647,6 @@ button {
   background: transparent;
 }
 
-.weekcard {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.weekcard .head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.94rem;
-  font-weight: 650;
-}
-
-.weekcard .head span:last-child {
-  font-size: 0.82rem;
-  font-weight: 400;
-  color: var(--muted);
-}
-
-.weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.weekday {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.weekday.now {
-  font-weight: 700;
-  color: var(--ink);
-}
-
 /* One day, as a mark: shared by the week strip on Today and the calendar on Plan. */
 .daymark {
   display: grid;
@@ -760,50 +687,6 @@ button {
 
 .daymark.skipped {
   background: var(--line);
-  color: var(--muted);
-}
-
-.daymark.rest-dot::after,
-.daymark.today-dot::after {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--edge);
-}
-
-.daymark.today-dot::after {
-  width: 12px;
-  height: 12px;
-  background: var(--space, var(--accent));
-}
-
-.next-up {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 12px 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.next-up small {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.next-up b {
-  display: block;
-  font-size: 1.12rem;
-  font-weight: 650;
-}
-
-.next-up .ico {
   color: var(--muted);
 }
 
@@ -2632,4 +2515,356 @@ button {
 .daycard .btn {
   min-height: 52px;
   border-radius: 16px;
+}
+
+/* ── The week: Monday to Sunday, one icon per session ────── */
+.resume-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.92rem;
+}
+
+.resume-bar .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-bar .ico {
+  color: var(--muted);
+}
+
+.live {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--space, var(--accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--space, var(--accent)) 22%, transparent);
+  flex: none;
+}
+
+.week-nav {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.week-nav .label {
+  display: grid;
+  justify-items: center;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+}
+
+.week-nav .label small {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.week-nav .icon-btn:disabled {
+  opacity: 0.3;
+}
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  align-items: start;
+}
+
+.wk-day {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wk-name {
+  display: grid;
+  justify-items: center;
+  font-size: 0.75rem;
+  font-weight: 620;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.wk-name small {
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.wk-day.today .wk-name {
+  color: var(--ink);
+  font-weight: 760;
+}
+
+.wk-card {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--space, var(--accent));
+}
+
+.wk-card .ico {
+  width: min(30px, 70%);
+  height: min(30px, 70%);
+}
+
+.wk-card:active {
+  background: var(--surface-2);
+}
+
+.wk-day.today .wk-card {
+  border: 2px solid var(--space, var(--accent));
+}
+
+.wk-card.done,
+.wk-card.skipped {
+  background: var(--surface-2);
+}
+
+.wk-card.skipped .ico:first-child {
+  opacity: 0.45;
+}
+
+.wk-card.rest {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+}
+
+.wk-day.today .wk-card.rest {
+  border: 1.5px dashed var(--edge);
+}
+
+.wk-dash {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--edge);
+}
+
+.wk-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
+}
+
+.wk-badge .ico {
+  width: 12px;
+  height: 12px;
+}
+
+.wk-badge.done {
+  background: var(--ok);
+  color: #fff;
+}
+
+.wk-badge.skipped {
+  background: var(--edge);
+  color: var(--surface);
+}
+
+.wk-badge.live {
+  width: 10px;
+  height: 10px;
+  top: -3px;
+  right: -3px;
+  background: var(--space, var(--accent));
+}
+
+.empty-line {
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+/* The sheet a day opens. */
+.day-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.day-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.day-act .ico {
+  width: 20px;
+  height: 20px;
+  color: var(--space, var(--accent));
+}
+
+.lasttime {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.lasttime > small {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lasttime .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+}
+
+.lasttime .line span:last-child {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.space-ico {
+  display: grid;
+  place-items: center;
+  color: var(--space, var(--accent));
+}
+
+/* ── Icon picker ─────────────────────────────────────────── */
+.icon-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.icon-choice .grow {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-choice b {
+  font-weight: 600;
+}
+
+.icon-choice small {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.icon-choice > .ico {
+  color: var(--muted);
+}
+
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 6px;
+}
+
+.icon-tile {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.icon-tile .ico {
+  width: 26px;
+  height: 26px;
+}
+
+.icon-tile.on {
+  border-color: var(--space, var(--accent));
+  background: color-mix(in srgb, var(--space, var(--accent)) 14%, var(--surface));
+  color: var(--space, var(--accent));
+}
+
+.icon-choice .icon-tile {
+  width: 44px;
+  min-width: 44px;
+}
+
+/* A space's icon on its card in Plan. */
+.space-card .space-ico .ico {
+  width: 26px;
+  height: 26px;
+}
+
+/* A programme day's activity inside the calendar mark. */
+.daymark.planned .ico,
+.daymark.today .ico {
+  width: 20px;
+  height: 20px;
+  color: var(--space, var(--accent));
+}
+
+.cal-day .cal-date {
+  font-size: 0.66rem;
+  line-height: 1;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-day {
+  height: auto;
+  min-height: 48px;
+  align-content: center;
+  gap: 2px;
+  padding: 3px 0;
+}
+
+.s-title .last-line {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.lasttime .line span:last-child {
+  white-space: nowrap;
 }

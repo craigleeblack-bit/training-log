@@ -113,4 +113,13 @@ describe('calendar', () => {
     const planned = plannedSessions([p, { ...p, id: 'p2', active: false }], [workout({})]);
     expect(planned.map((x) => `${x.date} ${x.slot.title}`)).toEqual(['2026-11-25 B', '2026-11-30 C', '2026-12-11 Old']);
   });
+
+  it('leaves out a programme without calendar dates', () => {
+    expect(plannedSessions([{ ...programme, dated: false }], [])).toEqual([]);
+    expect(plannedSessions([{ ...programme, dated: true }], [])).toHaveLength(4);
+  });
+
+  it('keeps a copy on or off calendar dates as the original was', () => {
+    expect(programmeCopy({ ...programme, dated: false }).dated).toBe(false);
+  });
 });

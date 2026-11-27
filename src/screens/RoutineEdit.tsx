@@ -5,7 +5,9 @@ import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { linkAbove, normaliseGroups, parseLadder } from '../lib/logging';
 import { routineCopy } from '../lib/planning';
-import { Chips, Field, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
+import { Chips, Field, IconPicker, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
+import { guessActivity, knownActivity } from '../lib/activities';
+import { ACTIVITY_OPTIONS } from '../icons';
 
 export function itemSummary(item: RoutineItem): string {
   const parts: string[] = [];
@@ -235,6 +237,16 @@ export default function RoutineEdit() {
           ))}
         </select>
       </Field>
+
+      <div style={{ ['--space' as string]: spaces.find((s) => s.id === routine.spaceId)?.color, display: 'contents' }}>
+        <IconPicker
+          label="Activity"
+          options={ACTIVITY_OPTIONS}
+          value={knownActivity(routine.activity) ?? guessActivity(routine.name, spaces.find((s) => s.id === routine.spaceId)?.name)}
+          onChange={(k) => patch({ activity: k })}
+          hint={routine.activity ? 'Shown on the Week screen' : 'Guessed from the name'}
+        />
+      </div>
 
       <div className="field">
         <span>Logging style</span>

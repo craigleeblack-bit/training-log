@@ -6,7 +6,9 @@ import { programmeProgress } from '../db/queries';
 import { isoDate, relativeDay } from '../lib/dates';
 import { deleteSpace, startWorkout } from '../actions';
 import { Icon, Page, SectionTitle, useFeedback } from '../ui';
-import { SpaceForm } from './Home';
+import { SpaceForm } from './Spaces';
+import { activityOf } from '../lib/activities';
+import { ActivityIcon } from '../icons';
 
 export default function SpaceScreen() {
   const { id = '' } = useParams();
@@ -29,7 +31,7 @@ export default function SpaceScreen() {
   const { space, routines, programmes, workouts } = data;
   if (!space) {
     return (
-      <Page title="Space" back="/">
+      <Page title="Space" back="/plan">
         <div className="empty">This space no longer exists.</div>
       </Page>
     );
@@ -55,6 +57,7 @@ export default function SpaceScreen() {
       weeks: 4,
       slots: [],
       active: true,
+      dated: false,
     };
     await db.programmes.add(p);
     nav(`/programme/${p.id}`);
@@ -69,7 +72,7 @@ export default function SpaceScreen() {
     });
     if (ok) {
       await deleteSpace(id);
-      nav('/');
+      nav('/plan');
     }
   };
 
@@ -77,7 +80,7 @@ export default function SpaceScreen() {
     <div style={{ ['--space' as string]: space.color }}>
       <Page
         title={space.name}
-        back="/"
+        back="/plan"
         actions={
           <button className="icon-btn" aria-label="Edit space" onClick={() => setEditing(true)}>
             {Icon.pencil}
@@ -111,6 +114,7 @@ export default function SpaceScreen() {
         <div className="card flush">
           {routines.map((r) => (
             <div key={r.id} className="row">
+              <span className="space-ico">{ActivityIcon[activityOf(undefined, r, { space: space.name })]}</span>
               <Link to={`/routine/${r.id}`} className="grow">
                 <div className="title">{r.name}</div>
                 <div className="sub">

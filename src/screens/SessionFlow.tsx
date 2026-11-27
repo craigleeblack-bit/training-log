@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Space, type Workout } from '../db/schema';
-import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber } from '../db/queries';
+import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber, summariseSets } from '../db/queries';
 import { isoDate, niceDate } from '../lib/dates';
 import { countdownPhases } from '../lib/timer';
 import { buildWorkoutContext } from '../lib/claude';
@@ -317,6 +317,11 @@ function FocusExercise({
             <div>
               <h1>{exercise.name}</h1>
               {summary && <p>{summary}</p>}
+              {last && (
+                <p className="last-line">
+                  Last time: {summariseSets(last.sets, exercise.measure)}, {niceDate(last.date).replace(/^\w+ /, '')}
+                </p>
+              )}
               {groupNote && <p className="group-note">{groupNote}</p>}
               {exercise.parts?.length ? <p>Each round: {describeParts(exercise.parts)}</p> : null}
             </div>

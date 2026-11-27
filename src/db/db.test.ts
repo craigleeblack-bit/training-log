@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { AppDB, type Programme, type Workout } from './schema';
 import { exportBackup, importBackup, validateBackup } from './backup';
 import {
+  closedSlots,
+  currentWeek,
+  lastRoutineSession,
   lastTime,
   loadNumber,
+  weekGrid,
   nextSlot,
   programmeProgress,
   repsNumber,
@@ -86,6 +90,101 @@ describe('programme resolution', () => {
   });
 });
 
+describe('the week', () => {
+  it('is the first week with a session still open, ignoring rest days', () => {
+    expect(currentWeek(programme, closedSlots(programme, []))).toBe(1);
+    const week1 = [
+      workout({ programmeId: 'p1', slotKey: '1-0' }),
+      workout({ programmeId: 'p1', slotKey: '1-1', status: 'skipped' }),
+    ];
+    expect(currentWeek(programme, closedSlots(programme, week1))).toBe(2);
+    const all = [...week1, workout({ programmeId: 'p1', slotKey: '2-0' })];
+    // Everything done: it stays on the last week.
+    expect(currentWeek(programme, closedSlots(programme, all))).toBe(2);
+  });
+
+  it('lays the current week over Monday to Sunday, with each session state', () => {
+    const going = workout({ id: 'going', programmeId: 'p1', slotKey: '1-1', status: 'in_progress' });
+    const g = weekGrid([programme], [workout({ programmeId: 'p1', slotKey: '1-0' }), going], []);
+    expect(g.shown).toMatchObject([{ week: 1, complete: false }]);
+    expect(g.days.map((d) => d.map((c) => `${c.slot.title}:${c.state}`))).toEqual([
+      ['Strength A:done'],
+      ['Easy aerobic:resume'],
+      [],
+      [],
+      [],
+      [],
+      ['Rest:open'],
+    ]);
+    expect(g.days[1][0].workout?.id).toBe('going');
+  });
+
+  it('moves on once a week is closed, and looks ahead or back inside the programme', () => {
+    const week1 = [
+      workout({ programmeId: 'p1', slotKey: '1-0' }),
+      workout({ programmeId: 'p1', slotKey: '1-1', status: 'skipped' }),
+    ];
+    expect(weekGrid([programme], week1, []).days[0][0].slot.title).toBe('Strength B');
+    expect(weekGrid([programme], week1, [], -1).days[1][0].state).toBe('skipped');
+    expect(weekGrid([programme], [], [], 5).shown[0].week).toBe(2);
+    expect(weekGrid([{ ...programme, active: false }], [], []).shown).toEqual([]);
+  });
+
+  it('puts a dated day on its weekday, and an undated one on its day number', () => {
+    const wednesday = '2026-11-25';
+    expect(weekGrid([{ ...programme, startDate: wednesday }], [], []).days[2][0].slot.title).toBe('Strength A');
+    expect(weekGrid([{ ...programme, startDate: wednesday, dated: false }], [], []).days[0][0].slot.title).toBe('Strength A');
+  });
+
+  it('stacks sessions from several programmes on the same day', () => {
+    const other = { ...programme, id: 'p2', slots: [{ week: 1, day: 0, title: 'Swim' }] };
+    expect(weekGrid([programme, other], [], []).days[0].map((c) => c.slot.title)).toEqual(['Strength A', 'Swim']);
+  });
+});
+
+describe('last session of a routine', () => {
+  it('gives the latest finished session, one line per exercise in plan order', async () => {
+    const db = freshDb();
+    await db.exercises.bulkAdd([
+      { id: 'squat', name: 'Goblet squat', measure: 'weight_reps', links: [] },
+      { id: 'plank', name: 'Plank', measure: 'time', links: [] },
+    ]);
+    const items = [
+      { id: 'i1', exerciseId: 'squat' },
+      { id: 'i2', exerciseId: 'plank' },
+    ];
+    await db.workouts.bulkAdd([
+      workout({ id: 'old', date: '2026-11-10', routineId: 'r1', items }),
+      workout({ id: 'new', date: '2026-11-17', routineId: 'r1', items }),
+      workout({ id: 'skip', date: '2026-11-20', routineId: 'r1', status: 'skipped', items }),
+      workout({ id: 'now', date: '2026-11-24', routineId: 'r1', status: 'in_progress', items }),
+    ]);
+    await db.sets.bulkAdd([
+      { id: '1', workoutId: 'new', exerciseId: 'plank', date: '2026-11-17', setNo: 1, seconds: 45 },
+      { id: '2', workoutId: 'new', exerciseId: 'squat', date: '2026-11-17', setNo: 2, reps: 10, weight: 16 },
+      { id: '3', workoutId: 'new', exerciseId: 'squat', date: '2026-11-17', setNo: 1, reps: 10, weight: 16 },
+      { id: '4', workoutId: 'old', exerciseId: 'squat', date: '2026-11-10', setNo: 1, reps: 8, weight: 12 },
+    ]);
+    const recap = await lastRoutineSession(db, { routineId: 'r1' }, { excludeWorkoutId: 'now' });
+    expect(recap?.workout.id).toBe('new');
+    expect(recap?.lines).toEqual([
+      { exerciseId: 'squat', name: 'Goblet squat', summary: '16 kg × 10, 10' },
+      { exerciseId: 'plank', name: 'Plank', summary: '0:45' },
+    ]);
+    expect((await lastRoutineSession(db, { routineId: 'r1' }, { excludeWorkoutId: 'new' }))?.workout.id).toBe('old');
+  });
+
+  it('matches a programme session by title when it has no routine', async () => {
+    const db = freshDb();
+    await db.workouts.bulkAdd([
+      workout({ id: 'a', programmeId: 'p1', title: 'Long run' }),
+      workout({ id: 'b', programmeId: 'p1', title: 'Intervals' }),
+    ]);
+    expect((await lastRoutineSession(db, { programmeId: 'p1', title: 'Long run' }))?.workout.id).toBe('a');
+    expect(await lastRoutineSession(db, { programmeId: 'p1', title: 'Tempo run' })).toBeUndefined();
+  });
+});
+
 describe('last time', () => {
   it('returns the most recent earlier session for an exercise', async () => {
     const db = freshDb();
@@ -139,7 +238,8 @@ describe('backup', () => {
     const b = freshDb();
     await b.spaces.add({ id: 'old', name: 'Old', color: '#fff', order: 0 });
     await importBackup(b, file, 'replace');
-    expect(await b.spaces.toArray()).toEqual([{ id: 's1', name: 'Home', color: '#000', order: 0 }]);
+    // A space saved without an icon gets one guessed from its name on the way in.
+    expect(await b.spaces.toArray()).toEqual([{ id: 's1', name: 'Home', color: '#000', icon: 'home', order: 0 }]);
     expect((await b.workouts.get('w1'))?.notes).toBe('felt fine');
     expect(await b.sets.count()).toBe(1);
     expect((await b.settings.get('claudeProjectUrl'))?.value).toBe('https://claude.ai/project/abc');

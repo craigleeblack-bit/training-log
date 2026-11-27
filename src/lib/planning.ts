@@ -1,5 +1,5 @@
 import { db, uid, type Programme, type ProgrammeSlot, type Routine, type Workout } from '../db/schema';
-import { closedSlots, slotDate, slotKey } from '../db/queries';
+import { closedSlots, isDated, slotDate, slotKey } from '../db/queries';
 import { addDays, isoDate, parseIso } from './dates';
 
 export interface Day {
@@ -100,11 +100,14 @@ export interface Planned {
   slot: ProgrammeSlot;
 }
 
-/** Sessions the active programmes still ask for, by date: neither done nor skipped, and not rest days. */
+/**
+ * Sessions the active programmes still ask for, by date: neither done nor skipped, and not rest days.
+ * A programme without calendar dates has no dates to put them on, so it is left out.
+ */
 export function plannedSessions(programmes: Programme[], workouts: Workout[]): Planned[] {
   const out: Planned[] = [];
   for (const p of programmes) {
-    if (!p.active) continue;
+    if (!p.active || !isDated(p)) continue;
     const closed = closedSlots(p, workouts);
     for (const slot of p.slots) {
       if (slot.rest || slot.week > p.weeks || closed.has(slotKey(slot))) continue;

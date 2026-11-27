@@ -102,6 +102,67 @@ export function Chips<T extends string | number>({
   );
 }
 
+/* ── Icon picker ──────────────────────────────────────────── */
+
+export interface IconOption<K extends string> {
+  key: K;
+  label: string;
+  icon: ReactNode;
+}
+
+/** Shows the chosen icon; tapping it opens a grid of the others to pick from. */
+export function IconPicker<K extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  options: IconOption<K>[];
+  value: K;
+  onChange: (key: K) => void;
+  /** A note beside the current choice, such as "guessed from the name". */
+  hint?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.key === value) ?? options[0];
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <button type="button" className="icon-choice" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="icon-tile on">{current.icon}</span>
+        <span className="grow">
+          <b>{current.label}</b>
+          {hint && <small>{hint}</small>}
+        </span>
+        {open ? Icon.chevUp : Icon.chevDown}
+      </button>
+      {open && (
+        <div className="icon-grid" role="radiogroup" aria-label={label}>
+          {options.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              role="radio"
+              aria-checked={o.key === value}
+              aria-label={o.label}
+              title={o.label}
+              className={`icon-tile${o.key === value ? ' on' : ''}`}
+              onClick={() => {
+                onChange(o.key);
+                setOpen(false);
+              }}
+            >
+              {o.icon}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Bottom sheet ─────────────────────────────────────────── */
 
 export function Sheet({

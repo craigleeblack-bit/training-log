@@ -42,8 +42,8 @@ function TrackPill() {
 
 /** Four places to be. Every other screen belongs to one of them, which stays lit while you are there. */
 const TABS = [
-  { to: '/', label: 'Today', icon: Icon.today, owns: /^\/($|space\/|routine\/|workout\/|settings|pass|track\/)/ },
-  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|history|calendar|progress)/ },
+  { to: '/', label: 'Week', icon: Icon.today, owns: /^\/($|workout\/|settings|pass|track\/)/ },
+  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|space\/|routine\/|history|calendar|progress)/ },
   { to: '/timer', label: 'Timer', icon: Icon.timer, owns: /^\/timer/ },
   { to: '/library', label: 'Library', icon: Icon.library, owns: /^\/(library|note\/|exercises|exercise\/)/ },
 ];

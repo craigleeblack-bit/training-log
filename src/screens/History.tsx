@@ -3,6 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/schema';
 import { isoDate, niceDate } from '../lib/dates';
 import { Icon, Page } from '../ui';
+import { knownActivity } from '../lib/activities';
+import { ActivityIcon } from '../icons';
 
 export default function History() {
   const [params] = useSearchParams();
@@ -38,7 +40,13 @@ export default function History() {
           <div className="card flush">
             {list.map((w) => (
               <Link key={w.id} to={`/workout/${w.id}`} className="row">
-                <span className="dot" style={{ ['--space' as string]: spaceById.get(w.spaceId)?.color }} />
+                {knownActivity(w.activity) ? (
+                  <span className="space-ico" style={{ ['--space' as string]: spaceById.get(w.spaceId)?.color }}>
+                    {ActivityIcon[knownActivity(w.activity)!]}
+                  </span>
+                ) : (
+                  <span className="dot" style={{ ['--space' as string]: spaceById.get(w.spaceId)?.color }} />
+                )}
                 <div className="grow">
                   <div className="title">{w.title}</div>
                   <div className="sub">
