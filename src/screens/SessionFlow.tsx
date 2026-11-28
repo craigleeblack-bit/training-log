@@ -1005,6 +1005,7 @@ export default function SessionFlow({
 
       {sheet === 'pick' && (
         <ExercisePicker
+          spaceId={w.spaceId}
           onClose={() => setSheet(undefined)}
           onPick={(e) => {
             const added = { id: uid(), exerciseId: e.id, sets: 3 };
@@ -1017,6 +1018,7 @@ export default function SessionFlow({
 
       {sheet === 'swap' && swapping && (
         <ExercisePicker
+          spaceId={w.spaceId}
           title="Swap exercise"
           onClose={() => setSheet('options')}
           onPick={async (e) => {

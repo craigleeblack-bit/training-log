@@ -17,7 +17,8 @@ import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCat
 import { cleanUrl, videoFor, videoSearchUrl } from '../lib/videos';
 import { METRIC_LABEL, METRIC_UNIT, metricsFor, metricValue, records, sideGap, type Metric } from '../lib/stats';
 import { LineChart } from '../charts';
-import { Chips, Field, Icon, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+import { Chips, Field, Icon, MultiChips, Page, SectionTitle, Sheet, useFeedback } from '../ui';
+import { EQUIPMENT, equipmentLabel, kitList, needsOf } from '../lib/equipment';
 
 const nonEmpty = <T,>(list: T[]): T[] | undefined => (list.length ? list : undefined);
 
@@ -233,7 +234,20 @@ function EditForm({ exercise, onClose }: { exercise: Exercise; onClose: () => vo
           </button>
         </div>
       )}
-      <Field label="Equipment">
+      <div className="field">
+        <span>Needs</span>
+        <MultiChips
+          ariaLabel="Needs"
+          options={EQUIPMENT.map((x) => x.key)}
+          value={needsOf(e)}
+          onChange={(needs) => set({ needs })}
+          label={equipmentLabel}
+        />
+        <span className="sub" style={{ fontWeight: 400 }}>
+          {e.needs ? (needsOf(e).length ? '' : 'Nothing: possible anywhere.') : 'Guessed from the name. Tap to correct it.'}
+        </span>
+      </div>
+      <Field label="Equipment note">
         <input value={e.equipment ?? ''} placeholder="2 × 16 kg kettlebells" onChange={(ev) => set({ equipment: ev.target.value })} />
       </Field>
       <Field label="Video link">
@@ -333,6 +347,7 @@ export function ExerciseDetail() {
         <span className="badge">{CATEGORY_LABEL[categoryOf(e)]}</span>
         <span className="badge">{MEASURE_LABEL[e.measure]}</span>
         {e.equipment && <span className="badge">{e.equipment}</span>}
+        {needsOf(e).length > 0 && <span className="badge">Needs {kitList(needsOf(e)).toLowerCase()}</span>}
         {used.map((r) => (
           <Link key={r.id} to={`/routine/${r.id}`} className="badge">
             {spaces.find((s) => s.id === r.spaceId)?.name} · {r.name}

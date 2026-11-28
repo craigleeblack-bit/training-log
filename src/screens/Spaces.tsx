@@ -5,7 +5,10 @@ import { db, SPACE_COLORS, uid, type Space } from '../db/schema';
 import { guessSpaceIcon, knownSpaceIcon, spaceIconOf, type SpaceIconKey } from '../lib/activities';
 import { isoDate, relativeDay } from '../lib/dates';
 import { SPACE_ICON_OPTIONS, SpaceIcon } from '../icons';
-import { Field, Icon, IconPicker, SectionTitle, Sheet } from '../ui';
+import { Field, Icon, IconPicker, MultiChips, SectionTitle, Sheet } from '../ui';
+import { EQUIPMENT, equipmentLabel, knownEquipment, type EquipmentKey } from '../lib/equipment';
+
+const KIT = EQUIPMENT.map((e) => e.key);
 
 export function SpaceForm({ space, onClose }: { space?: Space; onClose: () => void }) {
   const count = useLiveQuery(() => db.spaces.count(), []) ?? 0;
@@ -14,11 +17,13 @@ export function SpaceForm({ space, onClose }: { space?: Space; onClose: () => vo
   // Until one is picked, the icon follows the name as it is typed.
   const [icon, setIcon] = useState<SpaceIconKey | undefined>(knownSpaceIcon(space?.icon));
   const shown = icon ?? guessSpaceIcon(name);
+  // Undefined: not said yet, so nothing is filtered. A list, even an empty one, filters.
+  const [kit, setKit] = useState<EquipmentKey[] | undefined>(space?.equipment ? knownEquipment(space.equipment) : undefined);
   const save = async () => {
     const n = name.trim();
     if (!n) return;
-    if (space) await db.spaces.update(space.id, { name: n, color, icon: shown });
-    else await db.spaces.add({ id: uid(), name: n, color, icon: shown, order: count });
+    if (space) await db.spaces.update(space.id, { name: n, color, icon: shown, equipment: kit });
+    else await db.spaces.add({ id: uid(), name: n, color, icon: shown, equipment: kit, order: count });
     onClose();
   };
   return (
@@ -34,6 +39,27 @@ export function SpaceForm({ space, onClose }: { space?: Space; onClose: () => vo
           onChange={setIcon}
           hint={icon ? undefined : 'Guessed from the name'}
         />
+      </div>
+      <div className="field">
+        <span>Equipment here</span>
+        <MultiChips ariaLabel="Equipment here" options={KIT} value={kit ?? []} onChange={setKit} label={equipmentLabel} />
+        <span className="sub" style={{ fontWeight: 400 }}>
+          {kit === undefined
+            ? 'Not set, so every exercise counts as possible here. Tick what is here to filter exercises by it.'
+            : kit.length
+              ? 'Exercises that need anything else are filtered out of routines here.'
+              : 'Bodyweight only: exercises that need kit are filtered out.'}
+        </span>
+        <div className="inline">
+          <button type="button" className="btn small ghost" onClick={() => setKit([...KIT])}>
+            All of it
+          </button>
+          {kit !== undefined && (
+            <button type="button" className="btn small ghost" onClick={() => setKit(kit.length ? [] : undefined)}>
+              {kit.length ? 'Bodyweight only' : "Don't filter"}
+            </button>
+          )}
+        </div>
       </div>
       <div className="field">
         <span>Colour</span>

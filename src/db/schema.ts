@@ -3,6 +3,7 @@ import dexieCloud from 'dexie-cloud-addon';
 import { SYNC_URL } from '../sync';
 import { guessCategory, type ExerciseCategory } from '../lib/categories';
 import { guessActivity, guessSpaceIcon, type ActivityKey, type SpaceIconKey } from '../lib/activities';
+import type { EquipmentKey } from '../lib/equipment';
 import { DEFAULT_TIMERS, type TimerSpec } from '../lib/timer';
 
 /** How an exercise is measured, which decides the inputs shown when logging a set. */
@@ -22,6 +23,11 @@ export interface Space {
   color: string;
   /** Where it is: home, gym, pool… */
   icon?: SpaceIconKey;
+  /**
+   * The kit it has. Undefined until it is set, and then nothing is filtered; an empty list
+   * means bodyweight only.
+   */
+  equipment?: EquipmentKey[];
   order: number;
 }
 
@@ -52,6 +58,8 @@ export interface Exercise {
   video?: string;
   /** Logged one side at a time by default. */
   unilateral?: boolean;
+  /** The kit it needs, when chosen; otherwise it is guessed from the name and section. */
+  needs?: EquipmentKey[];
   /** What one round is made of, for an exercise measured in rounds. */
   parts?: ComplexPart[];
   links: Link[];

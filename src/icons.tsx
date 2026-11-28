@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ACTIVITIES, SPACE_ICONS, type ActivityKey, type SpaceIconKey } from './lib/activities';
+import type { TimerMode } from './lib/timer';
 
 /* Drawn to match the icons in ui.tsx: a 24 grid, round 1.8 strokes, currentColor. */
 
@@ -64,6 +65,19 @@ export const SpaceIcon: Record<SpaceIconKey, ReactNode> = {
   beach: svg(p('M7 13a5 5 0 0 1 10 0'), p('M3 13h18'), p(wave(17)), p(wave(20.8))),
   court: svg(<rect key="c" x="3" y="5" width="18" height="14" rx="1.5" />, p('M12 5v14M3 12h4M17 12h4'), <circle key="m" cx="12" cy="12" r="2.4" />),
   travel: svg(<rect key="c" x="4" y="7.5" width="16" height="12" rx="2.5" />, p('M9 7.5V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5v2'), p('M8 7.5v12M16 7.5v12')),
+};
+
+/** One for each kind of timer. */
+export const TimerIcon: Record<TimerMode, ReactNode> = {
+  // Work and rest, back and forth.
+  intervals: svg(p('M3 15.5h3V8.5h4.5v7h3V8.5H18v7h3')),
+  // A clock that starts again every minute.
+  emom: svg(p('M19.8 13.5A8 8 0 1 1 17.7 6.3'), p('M19.8 3.8v3.6h-3.6'), p('M12 8v4.2l2.8 1.6')),
+  // Round after round, for as long as it lasts.
+  amrap: svg(p('M12 12c-1.6-2.2-3-3.4-4.8-3.4a3.4 3.4 0 0 0 0 6.8c1.8 0 3.2-1.2 4.8-3.4s3-3.4 4.8-3.4a3.4 3.4 0 0 1 0 6.8c-1.8 0-3.2-1.2-4.8-3.4z')),
+  // Time running out.
+  countdown: svg(p('M6.5 3.5h11M6.5 20.5h11'), p('M8 3.5c0 4.2 8 4.6 8 8.5s-8 4.3-8 8.5M16 3.5c0 4.2-8 4.6-8 8.5s8 4.3 8 8.5'), p('M9.6 18.6h4.8')),
+  stopwatch: svg(<circle key="c" cx="12" cy="13.5" r="7.5" />, p('M12 9.5v4l2.5 2M9.5 3h5M18.5 6.5l1.3-1.3')),
 };
 
 export const ACTIVITY_OPTIONS = ACTIVITIES.map((a) => ({ ...a, icon: ActivityIcon[a.key] }));

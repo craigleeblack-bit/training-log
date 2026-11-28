@@ -5,6 +5,7 @@ import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { linkAbove, normaliseGroups, parseLadder } from '../lib/logging';
 import { routineCopy } from '../lib/planning';
+import { kitList, missingIn } from '../lib/equipment';
 import { Chips, Field, IconPicker, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 import { guessActivity, knownActivity } from '../lib/activities';
 import { ACTIVITY_OPTIONS } from '../icons';
@@ -29,22 +30,31 @@ export function ExercisePicker({
   onPick,
   onClose,
   title = 'Add exercise',
+  spaceId,
 }: {
   onPick: (e: Exercise) => void;
   onClose: () => void;
   title?: string;
+  /** The space it is for: exercises needing kit it does not have are held back. */
+  spaceId?: string;
 }) {
   const exercises = useLiveQuery(() => db.exercises.orderBy('name').toArray(), []) ?? [];
+  const space = useLiveQuery(() => (spaceId ? db.spaces.get(spaceId) : undefined), [spaceId]);
   const [q, setQ] = useState('');
   const [measure, setMeasure] = useState<Measure>('weight_reps');
   const [section, setSection] = useState<ExerciseCategory>();
+  const [showAll, setShowAll] = useState(false);
   const needle = q.trim().toLowerCase();
+  const filtering = !!space?.equipment;
+  const possible = (e: Exercise) => !missingIn(e, space).length;
+  const usable = filtering && !showAll ? exercises.filter(possible) : exercises;
   // Typing searches everything; otherwise a section narrows the list.
-  const matches = exercises.filter((e) =>
-    needle ? e.name.toLowerCase().includes(needle) : !section || categoryOf(e) === section,
-  );
+  const found = (list: Exercise[]) =>
+    list.filter((e) => (needle ? e.name.toLowerCase().includes(needle) : !section || categoryOf(e) === section));
+  const matches = found(usable);
+  const heldBack = filtering && !showAll ? found(exercises).length - matches.length : 0;
   const exact = exercises.some((e) => e.name.toLowerCase() === needle);
-  const sections = CATEGORIES.filter((c) => exercises.some((e) => categoryOf(e) === c));
+  const sections = CATEGORIES.filter((c) => usable.some((e) => categoryOf(e) === c));
 
   const create = async () => {
     const name = q.trim();
@@ -73,16 +83,32 @@ export function ExercisePicker({
           </button>
         </div>
       )}
+      {filtering && space && (
+        <button type="button" className="kit-filter" onClick={() => setShowAll((v) => !v)}>
+          {showAll
+            ? `Showing everything. Show only what ${space.name} has kit for`
+            : `Only what ${space.name} has kit for${heldBack ? `. Show ${heldBack} more` : ''}`}
+        </button>
+      )}
       <div className="card flush">
-        {matches.map((e) => (
-          <button key={e.id} className="row" onClick={() => onPick(e)}>
-            <div className="grow">
-              <div className="title">{e.name}</div>
-              <div className="sub">{[CATEGORY_LABEL[categoryOf(e)], MEASURE_LABEL[e.measure]].join(' · ')}</div>
-            </div>
-          </button>
-        ))}
-        {!matches.length && <div className="empty">No matching exercises.</div>}
+        {matches.map((e) => {
+          const missing = missingIn(e, space);
+          return (
+            <button key={e.id} className={`row${missing.length ? ' unavailable' : ''}`} onClick={() => onPick(e)}>
+              <div className="grow">
+                <div className="title">{e.name}</div>
+                <div className="sub">
+                  {missing.length
+                    ? `Needs ${kitList(missing).toLowerCase()}`
+                    : [CATEGORY_LABEL[categoryOf(e)], MEASURE_LABEL[e.measure]].join(' · ')}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+        {!matches.length && (
+          <div className="empty">{heldBack ? `No matches with the kit in ${space?.name}.` : 'No matching exercises.'}</div>
+        )}
       </div>
     </Sheet>
   );
@@ -199,6 +225,13 @@ export default function RoutineEdit() {
   }
 
   const nameOf = (exerciseId: string) => exercises.find((e) => e.id === exerciseId)?.name ?? 'Unknown exercise';
+  const space = spaces.find((s) => s.id === routine.spaceId);
+  /** Kit an item's exercise needs that this routine's space does not have. */
+  const missingFor = (exerciseId: string) => {
+    const e = exercises.find((x) => x.id === exerciseId);
+    return e ? missingIn(e, space) : [];
+  };
+  const impossible = routine.items.filter((i) => missingFor(i.exerciseId).length).length;
   const patch = (changes: Partial<Routine>) => db.routines.update(id, changes);
   const setItems = (items: RoutineItem[]) => patch({ items: normaliseGroups(items) });
 
@@ -241,6 +274,11 @@ export default function RoutineEdit() {
           ))}
         </select>
       </Field>
+      {impossible > 0 && (
+        <p className="kit-warning">
+          {impossible} exercise{impossible === 1 ? ' needs' : 's need'} kit {space?.name} does not have. They are marked below.
+        </p>
+      )}
 
       <div style={{ ['--space' as string]: spaces.find((s) => s.id === routine.spaceId)?.color, display: 'contents' }}>
         <IconPicker
@@ -306,22 +344,27 @@ export default function RoutineEdit() {
 
       <SectionTitle action={<button onClick={() => setPicking(true)}>+ Add</button>}>Exercises</SectionTitle>
       <div className="card flush">
-        {routine.items.map((item, i) => (
-          <div key={item.id} className={`row${item.group ? ' grouped' : ''}`}>
-            <button className="grow" style={{ border: 0, background: 'none', textAlign: 'left', padding: 0 }} onClick={() => setEditing(item.id)}>
-              <div className="title">{nameOf(item.exerciseId)}</div>
-              <div className="sub">
-                {[item.group && 'Superset', itemSummary(item)].filter(Boolean).join(' · ') || 'Tap to set sets, reps and load'}
-              </div>
-            </button>
-            <button className="icon-btn" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
-              ↑
-            </button>
-            <button className="icon-btn" aria-label="Move down" disabled={i === routine.items.length - 1} onClick={() => move(i, 1)}>
-              ↓
-            </button>
-          </div>
-        ))}
+        {routine.items.map((item, i) => {
+          const missing = missingFor(item.exerciseId);
+          return (
+            <div key={item.id} className={`row${item.group ? ' grouped' : ''}${missing.length ? ' unavailable' : ''}`}>
+              <button className="grow" style={{ border: 0, background: 'none', textAlign: 'left', padding: 0 }} onClick={() => setEditing(item.id)}>
+                <div className="title">{nameOf(item.exerciseId)}</div>
+                <div className="sub">
+                  {missing.length
+                    ? `Needs ${kitList(missing).toLowerCase()}, not in ${space?.name}`
+                    : [item.group && 'Superset', itemSummary(item)].filter(Boolean).join(' · ') || 'Tap to set sets, reps and load'}
+                </div>
+              </button>
+              <button className="icon-btn" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button className="icon-btn" aria-label="Move down" disabled={i === routine.items.length - 1} onClick={() => move(i, 1)}>
+                ↓
+              </button>
+            </div>
+          );
+        })}
         {!routine.items.length && <div className="empty">No exercises yet.</div>}
       </div>
 
@@ -341,6 +384,7 @@ export default function RoutineEdit() {
 
       {picking && (
         <ExercisePicker
+          spaceId={routine.spaceId}
           onClose={() => setPicking(false)}
           onPick={(e) => {
             const item: RoutineItem = { id: uid(), exerciseId: e.id, sets: 3, eachSide: e.unilateral || undefined };

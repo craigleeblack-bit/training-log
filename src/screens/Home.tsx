@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Space } from '../db/schema';
 import { lastRoutineSession, scheduleWeek, type WeekCell } from '../db/queries';
-import { addDays, niceDate, relativeDay, weekRangeLabel, weekStart, weekdayIndex } from '../lib/dates';
+import { addDays, niceDate, parseIso, relativeDay, weekRangeLabel, weekStart, weekdayIndex } from '../lib/dates';
 import { activityLabel, activityOf, spaceIconOf, type ActivityKey } from '../lib/activities';
 import { startWorkout } from '../actions';
 import { useToday } from '../useToday';
@@ -11,6 +11,13 @@ import { ActivityIcon, SpaceIcon } from '../icons';
 import { Icon, Page, Sheet } from '../ui';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const STATE_WORD: Record<WeekCell['state'], string> = {
+  open: '',
+  done: 'Done',
+  skipped: 'Skipped',
+  resume: 'In progress',
+};
 
 /** How far the week in view is from this one, in words. */
 function weekWord(offset: number): string {
@@ -221,33 +228,41 @@ export default function Home() {
       )}
 
       {anything ? (
-        <div className="week">
+        <div className="card flush week-list">
           {week.map((cells, day) => (
-            <div key={day} className={`wk-day${day === todayColumn ? ' today' : ''}`}>
-              <span className="wk-name">{DAY_NAMES[day]}</span>
-              {cells.length ? (
-                cells.map((c) => {
-                  const a = activity(c);
-                  return (
-                    <button
-                      key={keyOf(c)}
-                      className={`wk-card ${c.state}`}
-                      style={{ ['--space' as string]: spaceById.get(c.routine.spaceId)?.color }}
-                      aria-label={`${DAY_NAMES[day]}: ${c.routine.name}, ${activityLabel(a)}${c.state === 'open' ? '' : `, ${c.state === 'resume' ? 'in progress' : c.state}`}`}
-                      onClick={() => setOpenKey(keyOf(c))}
-                    >
-                      {ActivityIcon[a]}
-                      {c.state === 'done' && <span className="wk-badge done">{Icon.check}</span>}
-                      {c.state === 'skipped' && <span className="wk-badge skipped">{Icon.dash}</span>}
-                      {c.state === 'resume' && <span className="wk-badge live" />}
-                    </button>
-                  );
-                })
-              ) : (
-                <span className="wk-card rest" aria-label={`${DAY_NAMES[day]}: nothing`}>
-                  <span className="wk-dash" />
-                </span>
-              )}
+            <div key={day} className={`wk-row${day === todayColumn ? ' today' : ''}`}>
+              <span className="wk-when">
+                <b>{DAY_NAMES[day]}</b>
+                <small>{parseIso(addDays(monday, day)).getDate()}</small>
+              </span>
+              <div className="wk-items">
+                {cells.length ? (
+                  cells.map((c) => {
+                    const a = activity(c);
+                    const space = spaceById.get(c.routine.spaceId);
+                    return (
+                      <button
+                        key={keyOf(c)}
+                        className={`wk-item ${c.state}`}
+                        style={{ ['--space' as string]: space?.color }}
+                        aria-label={`${DAY_NAMES[day]}: ${c.routine.name}, ${activityLabel(a)}${c.state === 'open' ? '' : `, ${STATE_WORD[c.state].toLowerCase()}`}`}
+                        onClick={() => setOpenKey(keyOf(c))}
+                      >
+                        <span className="wk-ico">{ActivityIcon[a]}</span>
+                        <span className="wk-text">
+                          <b>{c.routine.name}</b>
+                          <small>{STATE_WORD[c.state] || space?.name}</small>
+                        </span>
+                        {c.state === 'done' && <span className="wk-mark done">{Icon.check}</span>}
+                        {c.state === 'skipped' && <span className="wk-mark skipped">{Icon.dash}</span>}
+                        {c.state === 'resume' && <span className="live" />}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span className="wk-rest">Rest</span>
+                )}
+              </div>
             </div>
           ))}
         </div>

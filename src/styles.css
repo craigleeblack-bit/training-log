@@ -710,11 +710,6 @@ button {
 }
 
 /* ── Programme grid ──────────────────────────────────────── */
-.week {
-  display: grid;
-  gap: 6px;
-}
-
 .week-label {
   font-size: 0.8rem;
   font-weight: 650;
@@ -2518,128 +2513,6 @@ button {
   flex: none;
 }
 
-.week {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  align-items: start;
-}
-
-.wk-day {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.wk-name {
-  display: grid;
-  justify-items: center;
-  font-size: 0.75rem;
-  font-weight: 620;
-  color: var(--muted);
-  line-height: 1.2;
-}
-
-.wk-name small {
-  font-size: 0.7rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.wk-day.today .wk-name {
-  color: var(--ink);
-  font-weight: 760;
-}
-
-.wk-card {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--space, var(--accent));
-}
-
-.wk-card .ico {
-  width: min(30px, 70%);
-  height: min(30px, 70%);
-}
-
-.wk-card:active {
-  background: var(--surface-2);
-}
-
-.wk-day.today .wk-card {
-  border: 2px solid var(--space, var(--accent));
-}
-
-.wk-card.done,
-.wk-card.skipped {
-  background: var(--surface-2);
-}
-
-.wk-card.skipped .ico:first-child {
-  opacity: 0.45;
-}
-
-.wk-card.rest {
-  border-style: dashed;
-  background: transparent;
-  box-shadow: none;
-}
-
-.wk-day.today .wk-card.rest {
-  border: 1.5px dashed var(--edge);
-}
-
-.wk-dash {
-  width: 12px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--edge);
-}
-
-.wk-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid var(--bg);
-  box-sizing: content-box;
-}
-
-.wk-badge .ico {
-  width: 12px;
-  height: 12px;
-}
-
-.wk-badge.done {
-  background: var(--ok);
-  color: #fff;
-}
-
-.wk-badge.skipped {
-  background: var(--edge);
-  color: var(--surface);
-}
-
-.wk-badge.live {
-  width: 10px;
-  height: 10px;
-  top: -3px;
-  right: -3px;
-  background: var(--space, var(--accent));
-}
-
 .empty-line {
   color: var(--muted);
   font-size: 0.94rem;
@@ -2934,5 +2807,243 @@ button {
 }
 
 .plan-day .icon-btn {
+  color: var(--muted);
+}
+
+/* ── The week, a row per day ─────────────────────────────── */
+.wk-row {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-row:last-child {
+  border-bottom: 0;
+}
+
+.wk-row.today {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.wk-when {
+  display: grid;
+  padding-top: 8px;
+  line-height: 1.15;
+}
+
+.wk-when b {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.wk-when small {
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.wk-row.today .wk-when b {
+  color: var(--accent-text);
+}
+
+.wk-items {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wk-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.wk-item:active {
+  background: var(--surface-2);
+}
+
+.wk-ico {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--space, var(--accent)) 14%, var(--surface));
+  color: var(--space, var(--accent));
+}
+
+.wk-ico .ico {
+  width: 26px;
+  height: 26px;
+}
+
+.wk-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.wk-text b {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wk-text small {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.wk-item.done .wk-text small {
+  color: var(--ok-ink);
+  font-weight: 600;
+}
+
+.wk-item.done,
+.wk-item.skipped {
+  background: var(--surface-2);
+}
+
+.wk-item.skipped .wk-ico {
+  opacity: 0.5;
+}
+
+.wk-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.wk-mark .ico {
+  width: 16px;
+  height: 16px;
+}
+
+.wk-mark.done {
+  background: var(--ok);
+  color: #fff;
+}
+
+.wk-mark.skipped {
+  background: var(--edge);
+  color: var(--surface);
+}
+
+.wk-rest {
+  padding-top: 8px;
+  font-size: 0.88rem;
+  color: var(--faint);
+}
+
+/* ── Equipment: what a space cannot do ───────────────────── */
+.row.unavailable {
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  box-shadow: inset 4px 0 0 var(--warn);
+}
+
+.row.unavailable .title {
+  color: var(--muted);
+}
+
+.row.unavailable .sub {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.kit-warning {
+  margin-top: -4px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--warn);
+}
+
+.kit-filter {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  text-align: left;
+}
+
+/* ── Timer kinds ─────────────────────────────────────────── */
+.timer-kinds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.timer-kind {
+  display: grid;
+  gap: 12px;
+  align-content: space-between;
+  min-height: 118px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  text-align: left;
+}
+
+.timer-kind:active {
+  background: var(--surface-2);
+}
+
+/* The stopwatch has nothing to choose, so it runs the full width. */
+.timer-kind.stopwatch {
+  grid-column: 1 / -1;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 0;
+}
+
+.tk-ico {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.tk-ico .ico {
+  width: 28px;
+  height: 28px;
+}
+
+.tk-text {
+  display: grid;
+  min-width: 0;
+}
+
+.tk-text b {
+  font-size: 1.02rem;
+  font-weight: 680;
+}
+
+.tk-text small {
+  font-size: 0.8rem;
   color: var(--muted);
 }

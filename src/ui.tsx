@@ -102,6 +102,40 @@ export function Chips<T extends string | number>({
   );
 }
 
+/** Chips where any number can be on at once. */
+export function MultiChips<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  ariaLabel,
+}: {
+  options: readonly T[];
+  value: readonly T[];
+  onChange: (v: T[]) => void;
+  label: (v: T) => string;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="chips" role="group" aria-label={ariaLabel}>
+      {options.map((o) => {
+        const on = value.includes(o);
+        return (
+          <button
+            key={o}
+            type="button"
+            className={`chip${on ? ' on' : ''}`}
+            aria-pressed={on}
+            onClick={() => onChange(on ? value.filter((v) => v !== o) : options.filter((x) => x === o || value.includes(x)))}
+          >
+            {label(o)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── Icon picker ──────────────────────────────────────────── */
 
 export interface IconOption<K extends string> {

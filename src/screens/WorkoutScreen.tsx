@@ -339,6 +339,7 @@ export default function WorkoutScreen() {
 
         {picking && (
           <ExercisePicker
+            spaceId={w.spaceId}
             onClose={() => setPicking(false)}
             onPick={(e) => {
               void patch({ items: [...w.items, { id: uid(), exerciseId: e.id, sets: 3 }], logStyle: w.items.length ? w.logStyle : 'sets' });

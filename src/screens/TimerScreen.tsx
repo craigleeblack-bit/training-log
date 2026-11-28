@@ -13,7 +13,8 @@ import {
   type TimerSpec,
 } from '../lib/timer';
 import { useTimer, useTimerPrefs } from '../timerContext';
-import { Chips, Field, Icon, NumInput, Page, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
+import { TimerIcon } from '../icons';
+import { Chips, Field, Icon, NumInput, Page, Sheet, parseDuration, useFeedback } from '../ui';
 
 const MODES: readonly TimerMode[] = ['intervals', 'emom', 'amrap', 'countdown', 'stopwatch'];
 
@@ -154,18 +155,21 @@ function SpecFields({ spec, onChange }: { spec: TimerSpec; onChange: (s: TimerSp
 
 function Builder({
   preset,
+  mode,
   count,
   onStart,
   onClose,
 }: {
   /** The saved timer being edited, or undefined for a new one. */
   preset?: TimerPreset;
+  /** The kind a new timer starts as. */
+  mode?: TimerMode;
   count: number;
   onStart: (spec: TimerSpec, name: string) => void;
   onClose: () => void;
 }) {
   const { confirm, toast } = useFeedback();
-  const [spec, setSpec] = useState<TimerSpec>(preset?.spec ?? STARTING.intervals);
+  const [spec, setSpec] = useState<TimerSpec>(preset?.spec ?? STARTING[mode ?? 'intervals']);
   const [name, setName] = useState(preset?.name ?? '');
   const total = specSeconds(spec);
   const usable = spec.mode === 'stopwatch' || buildPhases(spec).length > 0;
@@ -394,26 +398,110 @@ function Running() {
   );
 }
 
+/* ── One kind of timer: the ones saved of it ─────────────── */
+
+function KindSheet({
+  mode,
+  presets,
+  onRun,
+  onEdit,
+  onNew,
+  onClose,
+}: {
+  mode: TimerMode;
+  presets: TimerPreset[];
+  onRun: (p: TimerPreset) => void;
+  onEdit: (p: TimerPreset) => void;
+  onNew: () => void;
+  onClose: () => void;
+}) {
+  const [sorting, setSorting] = useState(false);
+  const mine = presets.filter((p) => p.spec.mode === mode);
+  // Swap places with the neighbour of the same kind, so other kinds keep their order.
+  const move = async (index: number, by: 1 | -1) => {
+    const a = mine[index];
+    const b = mine[index + by];
+    if (!a || !b) return;
+    await db.timers.bulkPut([
+      { ...a, order: b.order },
+      { ...b, order: a.order },
+    ]);
+  };
+  return (
+    <Sheet title={MODE_LABEL[mode]} onClose={onClose}>
+      <div className="card flush">
+        {mine.map((p, i) => {
+          const total = specSeconds(p.spec);
+          const text = (
+            <div className="grow">
+              <div className="title">{p.name}</div>
+              <div className="sub">{describeSpec(p.spec)}</div>
+            </div>
+          );
+          return sorting ? (
+            <div key={p.id} className="row tools">
+              {text}
+              <button className="icon-btn sm" aria-label={`Move ${p.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>
+                {Icon.chevUp}
+              </button>
+              <button className="icon-btn sm" aria-label={`Move ${p.name} down`} disabled={i === mine.length - 1} onClick={() => move(i, 1)}>
+                {Icon.chevDown}
+              </button>
+            </div>
+          ) : (
+            <div key={p.id} className="row tools">
+              <button className="row-main" aria-label={`Start ${p.name}`} onClick={() => onRun(p)}>
+                {text}
+                {total != null && <span className="sub">{clock(total)}</span>}
+              </button>
+              <button className="icon-btn sm" aria-label={`Edit ${p.name}`} onClick={() => onEdit(p)}>
+                {Icon.pencil}
+              </button>
+            </div>
+          );
+        })}
+        {!mine.length && <div className="empty">No {MODE_LABEL[mode]} timers saved yet.</div>}
+      </div>
+      <div className={mine.length > 1 ? 'grid-2' : undefined}>
+        <button className="btn primary block" onClick={onNew}>
+          {Icon.plus}
+          New timer
+        </button>
+        {mine.length > 1 && (
+          <button className="btn" onClick={() => setSorting((v) => !v)}>
+            {sorting ? 'Done' : 'Reorder'}
+          </button>
+        )}
+      </div>
+      {mine.length > 0 && !sorting && <p className="sub">Tap one to start it. The pencil changes it.</p>}
+    </Sheet>
+  );
+}
+
+/** The kinds in the order the Timer tab shows them. */
+const KINDS: readonly TimerMode[] = ['intervals', 'emom', 'amrap', 'countdown', 'stopwatch'];
+
+const KIND_HINT: Record<TimerMode, string> = {
+  intervals: 'Work and rest, in rounds',
+  emom: 'Every minute on the minute',
+  amrap: 'As many rounds as possible',
+  countdown: 'Down from a set time',
+  stopwatch: 'Count up, with laps',
+};
+
 /* ── The Timer tab ────────────────────────────────────────── */
 
 export default function TimerScreen() {
   const t = useTimer();
   const [prefs] = useTimerPrefs();
   const presets = useLiveQuery(() => db.timers.orderBy('order').toArray(), []);
-  const [building, setBuilding] = useState<TimerPreset | 'new'>();
+  const [building, setBuilding] = useState<TimerPreset | { new: TimerMode }>();
   const [options, setOptions] = useState(false);
-  const [sorting, setSorting] = useState(false);
+  const [kind, setKind] = useState<TimerMode>();
 
   const run = (spec: TimerSpec, name: string) => t.start(buildPhases(spec, prefs.prep), name, spec);
-
-  const move = async (index: number, by: 1 | -1) => {
-    if (!presets) return;
-    const list = [...presets];
-    const to = index + by;
-    if (to < 0 || to >= list.length) return;
-    [list[index], list[to]] = [list[to], list[index]];
-    await db.timers.bulkPut(list.map((p, order) => ({ ...p, order })));
-  };
+  // Stopwatches have nothing to set, so their tile simply starts one.
+  const openKind = (mode: TimerMode) => (mode === 'stopwatch' ? run({ mode: 'stopwatch' }, 'Stopwatch') : setKind(mode));
 
   return (
     <Page
@@ -429,71 +517,47 @@ export default function TimerScreen() {
         <Running />
       ) : (
         <>
-          <div className="grid-2">
-            <button className="btn primary big" onClick={() => setBuilding('new')}>
-              {Icon.plus}
-              New timer
-            </button>
-            <button className="btn big" onClick={() => run({ mode: 'stopwatch' }, 'Stopwatch')}>
-              {Icon.timer}
-              Stopwatch
-            </button>
-          </div>
-
-          <SectionTitle
-            action={
-              presets && presets.length > 1 ? (
-                <button onClick={() => setSorting((v) => !v)}>{sorting ? 'Done' : 'Reorder'}</button>
-              ) : undefined
-            }
-          >
-            Saved timers
-          </SectionTitle>
-          <div className="card flush">
-            {presets?.map((p, i) => {
-              const total = specSeconds(p.spec);
-              const text = (
-                <div className="grow">
-                  <div className="title">{p.name}</div>
-                  <div className="sub">{describeSpec(p.spec)}</div>
-                </div>
-              );
-              return sorting ? (
-                <div key={p.id} className="row tools">
-                  {text}
-                  <button className="icon-btn sm" aria-label={`Move ${p.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>
-                    {Icon.chevUp}
-                  </button>
-                  <button
-                    className="icon-btn sm"
-                    aria-label={`Move ${p.name} down`}
-                    disabled={i === presets.length - 1}
-                    onClick={() => move(i, 1)}
-                  >
-                    {Icon.chevDown}
-                  </button>
-                </div>
-              ) : (
-                <div key={p.id} className="row tools">
-                  <button className="row-main" aria-label={`Start ${p.name}`} onClick={() => run(p.spec, p.name)}>
-                    {text}
-                    {total != null && <span className="sub">{clock(total)}</span>}
-                  </button>
-                  <button className="icon-btn sm" aria-label={`Edit ${p.name}`} onClick={() => setBuilding(p)}>
-                    {Icon.pencil}
-                  </button>
-                </div>
+          <div className="timer-kinds">
+            {KINDS.map((mode) => {
+              const n = presets?.filter((p) => p.spec.mode === mode).length ?? 0;
+              return (
+                <button key={mode} className={`timer-kind ${mode}`} onClick={() => openKind(mode)}>
+                  <span className="tk-ico">{TimerIcon[mode]}</span>
+                  <span className="tk-text">
+                    <b>{MODE_LABEL[mode]}</b>
+                    <small>{mode === 'stopwatch' ? 'Tap to start' : n ? `${n} saved` : KIND_HINT[mode]}</small>
+                  </span>
+                </button>
               );
             })}
-            {presets && !presets.length && <div className="empty">No saved timers. Build one with New timer and tap Save.</div>}
           </div>
-          <p className="sub">Tap a timer to start it. The pencil changes it.</p>
+          <p className="sub">Tap a kind of timer for the ones you have saved, or to make a new one.</p>
         </>
       )}
 
+      {kind && presets && (
+        <KindSheet
+          mode={kind}
+          presets={presets}
+          onClose={() => setKind(undefined)}
+          onRun={(p) => {
+            setKind(undefined);
+            run(p.spec, p.name);
+          }}
+          onEdit={(p) => {
+            setKind(undefined);
+            setBuilding(p);
+          }}
+          onNew={() => {
+            setKind(undefined);
+            setBuilding({ new: kind });
+          }}
+        />
+      )}
       {building && (
         <Builder
-          preset={building === 'new' ? undefined : building}
+          preset={'new' in building ? undefined : building}
+          mode={'new' in building ? building.new : undefined}
           count={presets?.length ?? 0}
           onClose={() => setBuilding(undefined)}
           onStart={(spec, name) => {
