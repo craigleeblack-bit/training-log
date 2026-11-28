@@ -7,7 +7,8 @@ import { addDays, daysBetween, isoDate, relativeDay } from '../lib/dates';
 import { buildLogMarkdown, CLAUDE_URL_KEY, copyText, normaliseClaudeUrl } from '../lib/claude';
 import { setSetting } from '../actions';
 import { download } from '../lib/download';
-import { Field, Page, SectionTitle, useFeedback } from '../ui';
+import { Field, NumInput, Page, SectionTitle, useFeedback } from '../ui';
+import { BODY_WEIGHT_KEY } from '../lib/stats';
 
 const LAST_BACKUP_KEY = 'lastBackup';
 
@@ -95,12 +96,18 @@ export default function Settings() {
   const [persisted, setPersisted] = useState<boolean>();
 
   const info = useLiveQuery(async () => {
-    const [url, lastBackup, workouts] = await Promise.all([
+    const [url, lastBackup, workouts, bodyWeight] = await Promise.all([
       db.settings.get(CLAUDE_URL_KEY),
       db.settings.get(LAST_BACKUP_KEY),
       db.workouts.count(),
+      db.settings.get(BODY_WEIGHT_KEY),
     ]);
-    return { url: (url?.value as string) ?? '', lastBackup: lastBackup?.value as string | undefined, workouts };
+    return {
+      url: (url?.value as string) ?? '',
+      lastBackup: lastBackup?.value as string | undefined,
+      workouts,
+      bodyWeight: typeof bodyWeight?.value === 'number' ? bodyWeight.value : undefined,
+    };
   }, []);
 
   const [url, setUrl] = useState<string>();
@@ -200,7 +207,20 @@ export default function Settings() {
   };
 
   return (
-    <Page title="Settings" back="/">
+    <Page title="Settings" back>
+      <SectionTitle>You</SectionTitle>
+      <div className="card stack">
+        <Field label="Body weight">
+          <NumInput
+            ariaLabel="Body weight"
+            unit="kg"
+            value={info.bodyWeight}
+            onCommit={(v) => void (v ? setSetting(BODY_WEIGHT_KEY, v) : db.settings.delete(BODY_WEIGHT_KEY))}
+          />
+        </Field>
+        <p className="sub">Optional. With it, bodyweight exercises get an approximate workload: body weight plus anything added, times reps.</p>
+      </div>
+
       <SectionTitle>Claude</SectionTitle>
       <div className="card stack">
         <Field label="Claude Project link">

@@ -4,7 +4,7 @@ import { db, type Track, type Workout } from '../db/schema';
 import { download } from '../lib/download';
 import { ACTIVITY_LABEL, formatDistance, formatDuration, formatPace, splits, toGpx, UNIT_METRES } from '../lib/track';
 import { importGpx, useDistanceUnit } from '../trackContext';
-import { useFeedback } from '../ui';
+import { NumInput, useFeedback } from '../ui';
 
 const TrackMap = lazy(() => import('./TrackMap'));
 
@@ -95,6 +95,12 @@ export default function TrackSummary({ workout }: { workout: Workout }) {
             </div>
           </div>
           {open === t.id && <SplitList track={t} />}
+          {/* Typed in from a watch for now; the same fields can take a device's numbers later. */}
+          <div className="hr-row">
+            <span>Heart rate</span>
+            <NumInput ariaLabel="Average heart rate" unit="avg" value={t.avgHr} onCommit={(v) => db.tracks.update(t.id, { avgHr: v || undefined })} />
+            <NumInput ariaLabel="Highest heart rate" unit="max" value={t.maxHr} onCommit={(v) => db.tracks.update(t.id, { maxHr: v || undefined })} />
+          </div>
           <div className="inline">
             <button className="btn small ghost" onClick={() => setOpen(open === t.id ? undefined : t.id)}>
               {open === t.id ? 'Hide splits' : 'Splits'}

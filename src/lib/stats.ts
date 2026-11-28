@@ -163,32 +163,70 @@ export function records(sets: SetEntry[], measure: Measure): Record_[] {
   return out;
 }
 
-export type Metric = 'top' | 'volume' | 'e1rm' | 'reps' | 'time' | 'distance';
+export type Metric = 'top' | 'volume' | 'bodyload' | 'e1rm' | 'reps' | 'time' | 'hold' | 'distance' | 'pace';
 
 export const METRIC_LABEL: Record<Metric, string> = {
   top: 'Top weight',
-  volume: 'Volume',
+  volume: 'Workload',
+  bodyload: 'Workload (approx.)',
   e1rm: 'Est. 1RM',
-  reps: 'Total reps',
+  reps: 'Reps',
   time: 'Total time',
+  hold: 'Longest hold',
   distance: 'Distance',
+  pace: 'Pace',
 };
 
-export const METRIC_UNIT: Record<Metric, string> = { top: 'kg', volume: 'kg', e1rm: 'kg', reps: 'reps', time: 's', distance: 'm' };
+export const METRIC_UNIT: Record<Metric, string> = {
+  top: 'kg',
+  volume: 'kg',
+  bodyload: 'kg',
+  e1rm: 'kg',
+  reps: 'reps',
+  time: 's',
+  hold: 's',
+  distance: 'm',
+  pace: 's/km',
+};
 
-/** The ways an exercise's progress can be charted, most telling first. */
-export function metricsFor(measure: Measure): Metric[] {
+/** The Setting row holding your body weight, in kg. */
+export const BODY_WEIGHT_KEY = 'body-weight';
+
+/** What a metric needs beyond the sets themselves. */
+export interface MetricContext {
+  /** The body weight in Settings, in kg: makes a workload for bodyweight exercises. */
+  bodyWeight?: number;
+}
+
+/**
+ * The ways an exercise's progress can be charted, most telling first. A bodyweight exercise only
+ * has a workload once a body weight is set; a distance only has a pace once times are logged.
+ */
+export function metricsFor(measure: Measure, ctx: MetricContext & { timed?: boolean } = {}): Metric[] {
   switch (measure) {
     case 'weight_reps':
-      return ['top', 'volume', 'e1rm', 'reps'];
+      return ['top', 'reps', 'volume', 'e1rm'];
     case 'reps':
+      return ctx.bodyWeight ? ['reps', 'bodyload'] : ['reps'];
     case 'rounds':
       return ['reps'];
     case 'time':
-      return ['time'];
+      return ['time', 'hold'];
     case 'distance':
-      return ['distance'];
+      return ctx.timed ? ['distance', 'pace'] : ['distance'];
   }
+}
+
+/**
+ * A session's workload: the weight moved, summed over every set (weight × reps). For a bodyweight
+ * exercise it counts the body weight plus anything added, so it needs the body weight to mean anything.
+ */
+export function workload(sets: SetEntry[], measure: Measure, ctx: MetricContext = {}): number | undefined {
+  if (measure === 'weight_reps') return sum(sets.map((s) => setVolume(s) || undefined));
+  if (measure === 'reps' && ctx.bodyWeight) {
+    return sum(sets.map((s) => (s.reps != null ? (ctx.bodyWeight! + (load(s) ?? 0)) * s.reps : undefined)));
+  }
+  return undefined;
 }
 
 const sum = (vals: (number | undefined)[]): number | undefined => {
@@ -201,12 +239,22 @@ const max = (vals: (number | undefined)[]): number | undefined => {
 };
 
 /** One number for a session's sets of an exercise, by the chosen measure of progress. */
-export function metricValue(sets: SetEntry[], metric: Metric): number | undefined {
+export function metricValue(sets: SetEntry[], metric: Metric, ctx: MetricContext = {}): number | undefined {
   switch (metric) {
     case 'top':
       return max(sets.map(load));
     case 'volume':
-      return sum(sets.map((s) => setVolume(s) || undefined));
+      return workload(sets, 'weight_reps');
+    case 'bodyload':
+      return workload(sets, 'reps', ctx);
+    case 'hold':
+      return max(sets.map((s) => s.seconds));
+    case 'pace': {
+      const timed = sets.filter((s) => s.seconds != null && s.metres);
+      const metres = sum(timed.map((s) => s.metres));
+      const seconds = sum(timed.map((s) => s.seconds));
+      return metres && seconds ? (seconds / metres) * 1000 : undefined;
+    }
     case 'e1rm':
       return max(sets.map(e1rm));
     case 'reps':

@@ -10,7 +10,9 @@ import SpaceScreen from './screens/SpaceScreen';
 import RoutineEdit from './screens/RoutineEdit';
 import ProgrammeScreen from './screens/ProgrammeScreen';
 import PlanScreen from './screens/Plan';
-import WorkoutScreen from './screens/WorkoutScreen';
+import WorkoutScreen, { DayScreen, ExerciseScreen } from './screens/WorkoutScreen';
+import Review from './screens/Review';
+import { useCloseStale } from './useCloseStale';
 import { ExerciseDetail, ExerciseList } from './screens/Exercises';
 import TimerScreen from './screens/TimerScreen';
 import { Library, NoteScreen } from './screens/Library';
@@ -23,7 +25,6 @@ import { useWide } from './useWide';
 // Screens with heavy libraries of their own load when first opened, so the app starts fast.
 const Passes = lazy(() => import('./screens/Passes'));
 const TrackScreen = lazy(() => import('./screens/TrackScreen'));
-const Progress = lazy(() => import('./screens/Progress'));
 
 /** A recording under way follows you round the app, one tap from its screen. */
 function TrackPill() {
@@ -43,12 +44,13 @@ function TrackPill() {
   );
 }
 
-/** Four places to be. Every other screen belongs to one of them, which stays lit while you are there. */
+/** Five places to be. Every other screen belongs to one of them, which stays lit while you are there. */
 const TABS = [
-  { to: '/', label: 'Week', icon: Icon.today, owns: /^\/($|workout\/|settings|pass|track\/)/ },
-  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|space\/|routine\/|history|calendar|progress)/ },
+  { to: '/', label: 'Week', icon: Icon.today, owns: /^\/($|day\/|workout\/|settings|pass|track\/)/ },
+  { to: '/plan', label: 'Plan', icon: Icon.plan, owns: /^\/(plan|programme\/|space\/|routine\/)/ },
+  { to: '/review', label: 'Review', icon: Icon.chart, owns: /^\/(review|progress|history|calendar|exercise\/)/ },
   { to: '/timer', label: 'Timer', icon: Icon.timer, owns: /^\/timer/ },
-  { to: '/library', label: 'Library', icon: Icon.library, owns: /^\/(library|note\/|exercises|exercise\/)/ },
+  { to: '/library', label: 'Library', icon: Icon.library, owns: /^\/(library|note\/|exercises)/ },
 ];
 
 function TimerPill() {
@@ -97,6 +99,7 @@ function TabBar() {
 /** On a wide window Plan and its routines open as one workspace; on a phone, as pages. */
 function AppRoutes() {
   const wide = useWide();
+  useCloseStale();
   return (
     <Routes>
       <Route path="/" element={<Home />} />
@@ -104,12 +107,15 @@ function AppRoutes() {
       <Route path="/routine/:id" element={wide ? <PlanWorkspace /> : <RoutineEdit />} />
       <Route path="/plan" element={wide ? <PlanWorkspace /> : <PlanScreen />} />
       <Route path="/programme/:id" element={<ProgrammeScreen />} />
+      <Route path="/day/:date/:routineId" element={<DayScreen />} />
       <Route path="/workout/:id" element={<WorkoutScreen />} />
+      <Route path="/workout/:id/exercise/:itemId" element={<ExerciseScreen />} />
+      <Route path="/review" element={<Review />} />
       <Route path="/exercises" element={<ExerciseList />} />
       <Route path="/exercise/:id" element={<ExerciseDetail />} />
       <Route path="/history" element={<History />} />
       <Route path="/calendar" element={<Calendar />} />
-      <Route path="/progress" element={<Progress />} />
+      <Route path="/progress" element={<Review />} />
       <Route path="/timer" element={<TimerScreen />} />
       <Route path="/library" element={<Library />} />
       <Route path="/note/:id" element={<NoteScreen />} />

@@ -156,8 +156,10 @@ export interface Workout {
   rpe?: number;
   backResponse?: string;
   notes?: string;
-  /** Routine item ids ticked off in a session-style workout. */
+  /** Routine item ids finished: ticked off in a session-style workout, or "Finish exercise" in a set-by-set one. */
   checked?: string[];
+  /** Closed by the app after its day ended, rather than finished by hand. */
+  autoClosed?: boolean;
   /** Snapshot of the routine at the time of starting, so later routine edits never rewrite history. */
   logStyle: LogStyle;
   items: RoutineItem[];
@@ -179,6 +181,8 @@ export interface SetEntry {
   count?: number;
   /** Which side, for a set logged left and right separately. */
   side?: Side;
+  /** When it was logged (ms). Older sets do not have it. */
+  at?: number;
 }
 
 export type Side = 'L' | 'R';
@@ -225,6 +229,9 @@ export interface Track {
   /** Time spent moving, in seconds. */
   seconds: number;
   source: 'gps' | 'gpx';
+  /** Average and highest heart rate, in beats a minute: typed in for now, from a device one day. */
+  avgHr?: number;
+  maxHr?: number;
 }
 
 export type NoteKind = 'note' | 'book';

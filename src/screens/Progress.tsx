@@ -8,7 +8,7 @@ import { isoDate, niceDate } from '../lib/dates';
 import { formatMinutes, formatVolume, records, summarise, weeksAgo, type Week } from '../lib/stats';
 import { formatDistance } from '../lib/track';
 import { useDistanceUnit } from '../trackContext';
-import { Chips, Field, Icon, Page, SectionTitle } from '../ui';
+import { Chips, Field, Icon, SectionTitle } from '../ui';
 
 const RANGES = [4, 12, 52, 0] as const;
 type Range = (typeof RANGES)[number];
@@ -22,8 +22,8 @@ const MEASURE: Record<MeasureKey, { label: string; unit?: string; of: (w: Week) 
   minutes: { label: 'Time', unit: 'min', of: (w) => w.minutes },
 };
 
-/** What the training adds up to: totals, week-by-week bars, the run of weeks trained, and bests. */
-export default function Progress() {
+/** What the training adds up to: totals, week-by-week bars, the run of weeks trained, and bests. Shown in Review. */
+export function ProgressBody() {
   const today = isoDate();
   const [unit] = useDistanceUnit();
   const [range, setRange] = useState<Range>(12);
@@ -78,7 +78,7 @@ export default function Progress() {
   ];
 
   return (
-    <Page title="Progress" back="/plan">
+    <>
       <Chips options={RANGES} value={range} onChange={(v) => v != null && setRange(v)} label={(r) => RANGE_LABEL[r]} />
       {data.spaces.length > 1 && (
         <Field label="Space">
@@ -134,6 +134,6 @@ export default function Progress() {
           <p className="sub">Only finished sessions count. "New" marks a best set within the range shown. Open an exercise for its chart and every record.</p>
         </>
       )}
-    </Page>
+    </>
   );
 }

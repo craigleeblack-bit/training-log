@@ -122,29 +122,6 @@ function AddToDaySheet({
   );
 }
 
-/** The other places the Plan tab leads to. */
-function PlanLinks() {
-  const links = [
-    { to: '/calendar', title: 'Calendar', sub: 'Every session, month by month', icon: Icon.plan },
-    { to: '/progress', title: 'Progress', sub: 'Volume, records and consistency', icon: Icon.chart },
-    { to: '/history', title: 'History', sub: 'Every session you have logged', icon: Icon.clock },
-  ];
-  return (
-    <div className="card flush">
-      {links.map((l) => (
-        <Link key={l.to} to={l.to} className="row">
-          {l.icon}
-          <div className="grow">
-            <div className="title">{l.title}</div>
-            <div className="sub">{l.sub}</div>
-          </div>
-          {Icon.chevRight}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 type Making = { kind: 'routine'; day?: number } | { kind: 'programme' };
 
 /** The Plan tab: the week that repeats, then the routines, spaces and programmes behind it. */
@@ -293,7 +270,6 @@ export default function PlanScreen({
         )}
       </div>
 
-      <PlanLinks />
 
       {chosen && onDay && <OnDaySheet routine={chosen} day={onDay.day} onClose={() => setOnDay(undefined)} />}
       {adding !== undefined && (

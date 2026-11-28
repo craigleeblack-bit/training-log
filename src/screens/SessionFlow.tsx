@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, uid, type Exercise, type RoutineItem, type SetEntry, type Side, type Space, type Workout } from '../db/schema';
+import { db, uid, type Exercise, type Routine, type RoutineItem, type SetEntry, type Side, type Space, type Workout } from '../db/schema';
 import { describeParts, formatSeconds, hasValue, lastTime, loadNumber, repsNumber, setsLine } from '../db/queries';
 import { isoDate, niceDate } from '../lib/dates';
 import { countdownPhases } from '../lib/timer';
@@ -25,16 +25,21 @@ import {
   SIDES,
   sidesOf,
   swapItem,
+  changePlan,
+  writeBack,
   type Column,
   type NumKey,
   type SetValues,
 } from '../lib/logging';
-import { deleteWorkout, useAskClaude } from '../actions';
+import { deleteWorkout, getSetting, setSetting, useAskClaude } from '../actions';
+import { activityLabel, spaceIconOf, type ActivityKey } from '../lib/activities';
+import { routineFromWorkout } from '../lib/planning';
+import { ActivityIcon, SpaceIcon } from '../icons';
 import { useTimer } from '../timerContext';
 import { Block, Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import { VideoButton } from './Exercises';
-import TrackSummary from './TrackSummary';
+import TrackSummary, { GpxImport } from './TrackSummary';
 import { newRecords } from '../lib/stats';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -97,13 +102,14 @@ function Stepper({
 
 /* ── One exercise at a time: log a set, rest, repeat ──────── */
 
-function FocusExercise({
+export function FocusExercise({
   workout,
   item,
   exercise,
   entries,
-  onDone,
+  onFinish,
   onAddSet,
+  onPlanChanged,
   onSetDone,
   groupNote,
   nextNote,
@@ -114,9 +120,11 @@ function FocusExercise({
   item: RoutineItem;
   exercise: Exercise;
   entries: SetEntry[];
-  /** Back to the session's blocks. */
-  onDone: () => void;
+  /** Mark the exercise finished and go back to the routine. */
+  onFinish: () => void;
   onAddSet: () => void;
+  /** A set was taken away: the routine follows. */
+  onPlanChanged: () => void;
   /** A whole set has just been logged. `more` says whether this exercise has sets left. */
   onSetDone: (more: boolean) => void;
   /** "Superset 1 of 2", when this exercise is done in turn with others. */
@@ -133,6 +141,7 @@ function FocusExercise({
   const [picked, setPicked] = useState<Slot>();
   const [draft, setDraft] = useState<Record<string, SetValues>>({});
   const [info, setInfo] = useState(false);
+  const [noting, setNoting] = useState(false);
   const last = useLiveQuery(() => lastTime(db, exercise.id, { workoutId: workout.id }), [exercise.id, workout.id]);
 
   const cols = COLUMNS[exercise.measure];
@@ -246,7 +255,21 @@ function FocusExercise({
     await removeSet(workout.id, item.id, setNo);
     setDraft({});
     setPicked(undefined);
+    onPlanChanged();
   };
+
+  /** Log every set still open exactly as last time: one tap for a session that repeats the last. */
+  const repeatLast = async () => {
+    for (const s of slots.filter((x) => !slotLogged(x))) {
+      const v = expected(s);
+      const fill: SetValues = {};
+      for (const c of cols) if (v[c.key] != null) fill[c.key] = v[c.key];
+      if (Object.keys(fill).length) await saveSet(workout, item, exercise, s.setNo, fill, s.side);
+    }
+    setDraft({});
+    setPicked(undefined);
+  };
+  const anyLogged = slots.some((s) => slotLogged(s));
 
   const pos = timer.position;
   const resting = timer.active && timer.name === REST_TIMER && !!pos && !pos.done;
@@ -385,19 +408,78 @@ function FocusExercise({
             <b>All {rows} sets logged</b>
           </div>
         )}
+
+        {last && !anyLogged && (
+          <button type="button" className="same-last" onClick={repeatLast}>
+            {Icon.check}
+            <span>
+              Same as last time <b>{setsLine(last.sets, exercise.measure)}</b>
+            </span>
+          </button>
+        )}
+
+        <div className="plan-row">
+          <div className="rest-row">
+            <span>
+              Sets <b>{rows}</b>
+            </span>
+            <div className="mini-pm">
+              <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
+                {Icon.minus}
+              </button>
+              <button type="button" aria-label="Add a set" onClick={onAddSet}>
+                {Icon.plus}
+              </button>
+            </div>
+          </div>
+          <div className="rest-row">
+            <span>
+              Rest <b>{rest ? formatSeconds(rest) : 'none'}</b>
+            </span>
+            <div className="mini-pm">
+              <button type="button" aria-label="15 seconds less rest" disabled={!rest} onClick={() => onRest(-15)}>
+                {Icon.minus}
+              </button>
+              <button type="button" aria-label="15 seconds more rest" onClick={() => onRest(15)}>
+                {Icon.plus}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {noting || item.note ? (
+          <label className="ex-note">
+            <span>Note</span>
+            <textarea
+              key={item.id}
+              className="input"
+              rows={2}
+              autoFocus={noting && !item.note}
+              defaultValue={item.note ?? ''}
+              placeholder="A cue or reminder, shown here next time"
+              onBlur={async (e) => {
+                const note = e.target.value.trim() || undefined;
+                if (note !== item.note) {
+                  await changePlan(workout.id, item.id, (i) => ({ ...i, note }));
+                  onPlanChanged();
+                }
+                setNoting(false);
+              }}
+            />
+          </label>
+        ) : (
+          <button type="button" className="quiet-link" onClick={() => setNoting(true)}>
+            Add a note
+          </button>
+        )}
       </div>
 
       <div className="s-foot">
         {current == null ? (
-          <>
-            <button className="btn primary big block" onClick={onDone}>
-              Done
-              {Icon.arrow}
-            </button>
-            <button className="quiet" onClick={onAddSet}>
-              Add a set
-            </button>
-          </>
+          <button className="btn primary big block" onClick={onFinish}>
+            Finish exercise
+            {Icon.check}
+          </button>
         ) : editing ? (
           <>
             <button className="btn primary big block" onClick={log}>
@@ -409,17 +491,22 @@ function FocusExercise({
             </button>
           </>
         ) : (
-          <button className="btn primary big block spread" onClick={log}>
-            <span>
-              {/* One tap logs exactly what is shown: last time's numbers unless changed. */}
-              {cols.some((c) => vals[c.key] != null) ? `Log ${compactSet(vals, exercise.measure)}` : `Log set ${current}`}
-              {sideWord && `, ${sideWord}`}
-            </span>
-            <span className="then">
-              {closesSet ? nextNote : 'then the other side'}
-              {Icon.arrow}
-            </span>
-          </button>
+          <>
+            <button className="btn primary big block spread" onClick={log}>
+              <span>
+                {/* One tap logs exactly what is shown: last time's numbers unless changed. */}
+                {cols.some((c) => vals[c.key] != null) ? `Log ${compactSet(vals, exercise.measure)}` : `Log set ${current}`}
+                {sideWord && `, ${sideWord}`}
+              </span>
+              <span className="then">
+                {closesSet ? nextNote : 'then the other side'}
+                {Icon.arrow}
+              </span>
+            </button>
+            <button className="quiet" onClick={onFinish}>
+              Finish exercise
+            </button>
+          </>
         )}
       </div>
 
@@ -435,7 +522,6 @@ function FocusExercise({
             </div>
           )}
           {exercise.parts?.length ? <p>Each round: {describeParts(exercise.parts)}</p> : null}
-          {item.note && <p>{item.note}</p>}
           {exercise.cues && <p className="prescription">{exercise.cues}</p>}
           {exercise.adjustments && <p className="prescription muted">{exercise.adjustments}</p>}
           {workout.prescription && (
@@ -444,33 +530,6 @@ function FocusExercise({
               <p className="prescription">{workout.prescription}</p>
             </div>
           )}
-
-          <div className="rest-row">
-            <span>
-              Rest <b>{rest ? formatSeconds(rest) : 'none'}</b>
-            </span>
-            <div className="mini-pm">
-              <button type="button" aria-label="15 seconds less rest" disabled={!rest} onClick={() => onRest(-15)}>
-                − 15 s
-              </button>
-              <button type="button" aria-label="15 seconds more rest" onClick={() => onRest(15)}>
-                + 15 s
-              </button>
-            </div>
-          </div>
-          <div className="rest-row">
-            <span>
-              Sets <b>{rows}</b>
-            </span>
-            <div className="mini-pm">
-              <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
-                {Icon.minus}
-              </button>
-              <button type="button" aria-label="Add a set" onClick={onAddSet}>
-                {Icon.plus}
-              </button>
-            </div>
-          </div>
 
           <VideoButton exercise={exercise} />
           <Link className="btn" to={`/exercise/${exercise.id}`}>
@@ -482,135 +541,152 @@ function FocusExercise({
   );
 }
 
-/* ── The whole in-progress session ────────────────────────── */
+/* ── Moving about: every screen is a real step in history ─── */
 
-export default function SessionFlow({
+/** Back one step, as the system back gesture would; to `fallback` when the screen was opened directly. */
+export function useBack(fallback: string): () => void {
+  const nav = useNavigate();
+  return useCallback(() => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) nav(-1);
+    else nav(fallback, { replace: true });
+  }, [nav, fallback]);
+}
+
+/** Says once, ever, that changing the plan here changes the routine too. */
+function useSavedHint(): (saved: boolean) => Promise<void> {
+  const { toast } = useFeedback();
+  return useCallback(
+    async (saved: boolean) => {
+      if (!saved || (await getSetting<boolean>(SAVED_HINT))) return;
+      await setSetting(SAVED_HINT, true);
+      toast('Saved for next time, in the routine too.');
+    },
+    [toast],
+  );
+}
+
+const SAVED_HINT = 'hint-saved-for-next-time';
+
+/** Finished: ticked by hand, or every set logged in a set-by-set session. */
+export function itemFinished(w: Workout, item: RoutineItem, entries: SetEntry[]): boolean {
+  if (w.checked?.includes(item.id)) return true;
+  if (w.logStyle !== 'sets') return false;
+  const done = setsDone(item, entries);
+  return done > 0 && done >= setCount(item, entries);
+}
+
+/** A rest under way, shown wherever the session is. */
+function RestBar() {
+  const timer = useTimer();
+  const pos = timer.position;
+  if (!timer.active || timer.name !== REST_TIMER || !pos || pos.done) return null;
+  return (
+    <div className="rest-bar">
+      <span>Rest</span>
+      <b role="timer" aria-live="off">
+        {formatSeconds(Math.ceil(pos.remaining))}
+      </b>
+      <button className="icon-btn" aria-label="Skip the rest" onClick={timer.stop}>
+        {Icon.close}
+      </button>
+    </div>
+  );
+}
+
+/* ── The routine screen: the day's exercises, nothing to type ── */
+
+export function RoutineList({
   workout: w,
+  routine,
+  title,
   space,
-  sets,
+  activity,
   exercises,
+  sets,
+  onStart,
+  locked,
 }: {
-  workout: Workout;
+  /** The session, once there is one. Before that the routine's own list is shown. */
+  workout?: Workout;
+  routine?: Routine;
+  title: string;
   space?: Space;
-  sets: SetEntry[];
+  activity?: ActivityKey;
   exercises: Exercise[];
+  sets: SetEntry[];
+  /** Begin the session, giving back its id: called on the first tap of an exercise. */
+  onStart?: () => Promise<string>;
+  /** A day still to come: shown, but not started. */
+  locked?: boolean;
 }) {
   const nav = useNavigate();
+  const back = useBack('/');
   const timer = useTimer();
   const { confirm, toast } = useFeedback();
   const ask = useAskClaude();
-  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
-  const items = w.items.filter((i) => exerciseById.has(i.exerciseId));
-  const entriesFor = (item: RoutineItem) => sets.filter((s) => s.itemId === item.id);
-  const complete = (item: RoutineItem) => setsDone(item, entriesFor(item)) >= setCount(item, entriesFor(item));
-
-  // The session opens on its blocks; tapping one opens the set logger for it.
-  const [view, setView] = useState<'list' | 'log' | 'wrap'>('list');
-  const [noting, setNoting] = useState(!!w.notes);
-  const [sheet, setSheet] = useState<'options' | 'pick' | 'swap'>();
+  const [sheet, setSheet] = useState<'wrap' | 'details' | 'pick' | 'swap'>();
   const [editList, setEditList] = useState(false);
   const [swapping, setSwapping] = useState<string>();
-  // The exercise in view is remembered by identity, so reordering or removing others never moves you.
-  const [currentId, setCurrentId] = useState(() => (items.find((i) => !complete(i)) ?? items[items.length - 1])?.id);
+  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
+  const items = (w?.items ?? routine?.items ?? []).filter((i) => exerciseById.has(i.exerciseId));
+  const entriesFor = (i: RoutineItem) => sets.filter((s) => s.itemId === i.id);
+  const nameOf = (i: RoutineItem) => exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
+  const live = !w || w.status === 'in_progress';
 
-  // On the wrap-up, say what this session beat. Only looked up once that screen is showing.
+  // One line of "last time" for each exercise: what was done, and when.
+  const lastFor = useLiveQuery(async () => {
+    const ids = [...new Set(items.map((i) => i.exerciseId))];
+    const found = await Promise.all(ids.map((id) => lastTime(db, id, w ? { workoutId: w.id } : undefined)));
+    return new Map(ids.map((id, k) => [id, found[k]]));
+  }, [items.map((i) => i.exerciseId).join(), w?.id]);
+
+  // On the wrap-up, say what this session beat.
   const beaten = useLiveQuery(async () => {
-    if (view !== 'wrap') return [];
+    if (sheet !== 'wrap' || !w) return [];
     const ids = [...new Set(w.items.map((i) => i.exerciseId))];
     const [workouts, history] = await Promise.all([db.workouts.toArray(), db.sets.where('exerciseId').anyOf(ids).toArray()]);
     return newRecords({ workouts, sets: history, tracks: [] }, w.id, exercises.filter((e) => ids.includes(e.id)));
-  }, [view, w.id, sets.length]);
+  }, [sheet, w?.id, sets.length]);
 
-  // A finished rest ends itself here, so the next set is simply waiting.
-  const restOver = timer.active && timer.name === REST_TIMER && !!timer.position?.done;
-  const stopTimer = timer.stop;
-  useEffect(() => {
-    if (restOver) stopTimer();
-  }, [restOver, stopTimer]);
+  const open = async (item: RoutineItem) => {
+    if (locked) return;
+    const id = w?.id ?? (await onStart?.());
+    if (id) nav(`/workout/${id}/exercise/${item.id}`);
+  };
 
-  const focus = w.logStyle === 'sets' && items.length > 0;
-  const found = items.findIndex((i) => i.id === currentId);
-  const at = found < 0 ? 0 : found;
-  const item = items[at];
-  const exercise = item && exerciseById.get(item.exerciseId);
-  const checked = new Set(w.checked ?? []);
-
-  const patch = (changes: Partial<Workout>) => db.workouts.update(w.id, changes);
-  const elapsedMin = Math.round((Date.now() - w.startedAt) / 60000);
+  const patch = (changes: Partial<Workout>) => (w ? db.workouts.update(w.id, changes) : Promise.resolve(0));
+  const elapsedMin = w ? Math.round((Date.now() - w.startedAt) / 60000) : 0;
   const suggestMinutes = elapsedMin >= 1 && elapsedMin <= 240 ? elapsedMin : undefined;
 
+  const finish = async (status: 'done' | 'skipped') => {
+    const id = w?.id ?? (await onStart?.());
+    if (!id) return;
+    if (timer.active && timer.name === REST_TIMER) timer.stop();
+    const current = await db.workouts.get(id);
+    await db.workouts.update(id, { status, minutes: status === 'done' ? (current?.minutes ?? suggestMinutes) : current?.minutes });
+    setSheet(undefined);
+    back();
+  };
+
   const setDate = async (date: string) => {
+    if (!w) return;
     await db.transaction('rw', db.workouts, db.sets, async () => {
       await db.workouts.update(w.id, { date });
       await db.sets.where('workoutId').equals(w.id).modify({ date });
     });
   };
 
-  const finish = async (status: 'done' | 'skipped') => {
-    if (timer.active && timer.name === REST_TIMER) timer.stop();
-    await patch({ status, minutes: status === 'done' ? (w.minutes ?? suggestMinutes) : w.minutes });
-    // Land on Today, which now shows the result and what is next; replace so Back does not reopen this.
-    nav('/', { replace: true });
-  };
-
-  const nameOf = (i: RoutineItem) => exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
-
-  // Exercises that share a group are done in turn: one set of each, then the rest.
-  const group = item?.group ? items.filter((i) => i.group === item.group) : item ? [item] : [];
-  const restFor = (i: RoutineItem) => i.rest ?? group.find((g) => g.rest)?.rest;
-  /** The exercise that follows this one within the round, if any still has sets to do. */
-  const turnNext = item ? group.slice(group.indexOf(item) + 1).find((i) => !complete(i)) : undefined;
-
-  /** A different rest for this exercise, kept in the routine too: set it once and it stays. */
-  const changeRest = async (i: RoutineItem, by: number) => {
-    const next = Math.min(600, Math.max(0, (restFor(i) ?? 0) + by)) || undefined;
-    const saved = await setItemRest(w.id, i.id, next);
-    const what = next ? `Rest ${formatSeconds(next)}` : 'No rest';
-    toast(saved ? `${what}, saved for next time.` : `${what} for this session.`);
-  };
-
-  /** After a set: on to the next exercise in the round, or rest and go again, or move on. */
-  const afterSet = (more: boolean) => {
-    if (!item) return;
-    if (turnNext) {
-      setCurrentId(turnNext.id);
-      return;
-    }
-    const again = group.find((i) => (i.id === item.id ? more : !complete(i)));
-    const left = items.find((i) => !group.includes(i) && !complete(i));
-    if (!again && !left) {
-      setView('wrap');
-      return;
-    }
-    const rest = restFor(item);
-    if (rest) timer.start(countdownPhases(rest), REST_TIMER);
-    if (again) {
-      setCurrentId(again.id);
-      return;
-    }
-    setCurrentId(left!.id);
-    setView('list');
-  };
-
-  /** Losing logged sets is worth a question first; an untouched exercise just goes. */
-  const sureAbout = async (i: RoutineItem, title: string, action: string) => {
+  const sureAbout = async (i: RoutineItem, heading: string, action: string) => {
     const n = loggedSets(entriesFor(i)).length;
     if (!n) return true;
-    return confirm({
-      title,
-      body: `The ${n} set${n === 1 ? '' : 's'} logged for ${nameOf(i)} will be removed.`,
-      action,
-      danger: true,
-    });
+    return confirm({ title: heading, body: `The ${n} set${n === 1 ? '' : 's'} logged for ${nameOf(i)} will be removed.`, action, danger: true });
   };
-
   const dropItem = async (i: RoutineItem) => {
-    if (!(await sureAbout(i, `Remove ${nameOf(i)}?`, 'Remove exercise'))) return;
-    if (i.id === currentId) setCurrentId((items[at + 1] ?? items[at - 1])?.id);
-    await removeItem(w.id, i.id);
+    if (w && (await sureAbout(i, `Remove ${nameOf(i)}?`, 'Remove exercise'))) await removeItem(w.id, i.id);
   };
-
   const remove = async () => {
+    if (!w) return;
     const ok = await confirm({
       title: 'Delete this session?',
       body: 'Everything logged in it is removed. This cannot be undone.',
@@ -619,224 +695,140 @@ export default function SessionFlow({
     });
     if (ok) {
       await deleteWorkout(w.id);
-      nav('/', { replace: true });
+      back();
     }
   };
 
-  const setsLogged = loggedSets(sets).length;
-
-  const pos = timer.position;
-  const resting = timer.active && timer.name === REST_TIMER && !!pos && !pos.done;
-  /** The block to do next: the first not yet complete. */
-  const nextItem = items.find((i) => (focus ? !complete(i) : !checked.has(i.id)));
-  const allDone = items.length > 0 && !nextItem;
-
-  /** Items in runs, so a superset or circuit can sit in one outline. */
-  const runs = runsOf(items);
-
   const blockFor = (i: RoutineItem) => {
+    const ex = exerciseById.get(i.exerciseId)!;
+    const last = lastFor?.get(i.exerciseId);
     const entries = entriesFor(i);
-    const of = setCount(i, entries);
-    const done = setsDone(i, entries);
-    const name = nameOf(i);
-    const ticked = checked.has(i.id);
+    const done = !!w && itemFinished(w, i, entries);
+    const logged = w?.logStyle === 'sets' ? setsDone(i, entries) : 0;
+    const sub = last ? `${setsLine(last.sets, ex.measure)} · ${niceDate(last.date).replace(/^\w+ /, '')}` : itemSummary(i) || 'Not done before';
     return (
       <Block
         key={i.id}
-        title={name}
-        sub={itemSummary(i) || undefined}
-        now={i === nextItem}
-        done={focus ? done >= of : ticked}
-        progress={focus ? { done, of } : undefined}
-        ariaLabel={focus ? `${name}, ${done} of ${of} sets` : `${ticked ? 'Untick' : 'Tick'} ${name}`}
-        onClick={() => {
-          if (focus) {
-            setCurrentId(i.id);
-            setView('log');
-            return;
-          }
-          const next = new Set(checked);
-          if (ticked) next.delete(i.id);
-          else next.add(i.id);
-          void patch({ checked: [...next] });
-        }}
+        title={ex.name}
+        sub={sub}
+        done={done}
+        progress={!done && logged ? { done: logged, of: setCount(i, entries) } : undefined}
+        ariaLabel={`${ex.name}${done ? ', finished' : ''}. Last time: ${sub}`}
+        onClick={locked ? undefined : () => void open(i)}
       />
     );
   };
 
   return (
-    <div className="session" style={{ ['--space' as string]: space?.color }}>
+    <div className="session list" style={{ ['--space' as string]: space?.color }}>
       <header className="s-head">
-        {view === 'list' ? (
-          <button className="icon-btn" aria-label="Close, and keep the session open" onClick={() => nav('/')}>
-            {Icon.close}
-          </button>
-        ) : (
-          <button className="icon-btn" aria-label={view === 'log' ? 'Back to the exercises' : 'Back to the session'} onClick={() => setView('list')}>
-            {Icon.back}
-          </button>
-        )}
+        <button className="icon-btn" aria-label="Back" onClick={back}>
+          {Icon.back}
+        </button>
         <div className="mid">
-          <b>{view === 'wrap' ? 'Wrap up' : w.title}</b>
+          <b>{title}</b>
         </div>
-        {view === 'list' && (
-          <>
-            <button className="icon-btn" aria-label="Session options" onClick={() => setSheet('options')}>
-              {Icon.more}
-            </button>
-            {focus && !allDone && (
-              <button className="finish" onClick={() => setView('wrap')}>
-                Finish
-              </button>
-            )}
-          </>
+        {w && (
+          <button className="icon-btn" aria-label="Session details" onClick={() => setSheet('details')}>
+            {Icon.more}
+          </button>
         )}
       </header>
 
-      {view === 'list' && (
-        <>
-          <div className="s-body top">
-            {resting && pos && (
-              <div className="rest-bar">
-                <span>Rest</span>
-                <b role="timer" aria-live="off">
-                  {formatSeconds(Math.ceil(pos.remaining))}
-                </b>
-                <button className="icon-btn" aria-label="Skip the rest" onClick={timer.stop}>
-                  {Icon.close}
-                </button>
-              </div>
-            )}
-            {!items.length && w.prescription && <p className="prescription">{w.prescription}</p>}
-            {items.length > 0 && (
-              <div className="blocks">
-                {runs.map((run) =>
-                  run.length > 1 ? (
-                    <div key={run[0].id} className="block-group">
-                      {run.map(blockFor)}
-                    </div>
-                  ) : (
-                    blockFor(run[0])
-                  ),
-                )}
-              </div>
+      <div className="s-body top">
+        <div className="day-meta">
+          {activity && (
+            <span className="day-act">
+              {ActivityIcon[activity]}
+              {activityLabel(activity)}
+            </span>
+          )}
+          {space && (
+            <span className="day-act">
+              {SpaceIcon[spaceIconOf(space)]}
+              {space.name}
+            </span>
+          )}
+          {w && w.status !== 'in_progress' && (
+            <span className={`day-act plain${w.status === 'done' ? ' ok' : ''}`}>
+              {w.status === 'done' ? 'Done' : 'Skipped'} {niceDate(w.date)}
+            </span>
+          )}
+          {locked && <span className="day-act plain">Coming up</span>}
+        </div>
+
+        <RestBar />
+
+        {!items.length && (w?.prescription ?? routine?.description) && <p className="prescription">{w?.prescription ?? routine?.description}</p>}
+
+        {items.length > 0 && (
+          <div className="blocks">
+            {runsOf(items).map((run) =>
+              run.length > 1 ? (
+                <div key={run[0].id} className="block-group">
+                  {run.map(blockFor)}
+                </div>
+              ) : (
+                blockFor(run[0])
+              ),
             )}
           </div>
-          <div className="s-foot">
-            {focus && nextItem ? (
-              <button
-                className="btn primary big block"
-                onClick={() => {
-                  setCurrentId(nextItem.id);
-                  setView('log');
-                }}
-              >
-                {setsLogged ? 'Continue' : 'Start'}
-                {Icon.arrow}
-              </button>
-            ) : (
-              <button className="btn primary big block" onClick={() => setView('wrap')}>
-                Wrap up
-                {Icon.arrow}
-              </button>
-            )}
-          </div>
-        </>
+        )}
+
+        {w && <TrackSummary workout={w} />}
+      </div>
+
+      {live && !locked && (
+        <div className="s-foot">
+          <button className="btn primary big block" onClick={() => setSheet('wrap')}>
+            Finish session
+          </button>
+        </div>
       )}
 
-      {view === 'log' && focus && item && exercise && (
-        <FocusExercise
-          key={item.id}
-          workout={w}
-          item={item}
-          exercise={exercise}
-          entries={entriesFor(item)}
-          onDone={() => setView('list')}
-          onAddSet={() => addSet(w.id, item.id)}
-          onSetDone={afterSet}
-          groupNote={group.length > 1 ? `${group.length > 2 ? 'Circuit' : 'Superset'}, ${group.indexOf(item) + 1} of ${group.length}` : undefined}
-          nextNote={
-            turnNext
-              ? `then ${nameOf(turnNext)}`
-              : restFor(item)
-                ? `then rest ${formatSeconds(restFor(item)!)}`
-                : ''
-          }
-          rest={restFor(item)}
-          onRest={(by) => void changeRest(item, by)}
-        />
-      )}
-
-      {view === 'wrap' && (
-        <>
-          <div className="s-body top wrap">
-            <div className="hero-done">
-              <span className="bigcheck">{Icon.check}</span>
-              <div>
-                <h1>{w.title}</h1>
-              </div>
+      {sheet === 'wrap' && (
+        <Sheet title="How did it go?" onClose={() => setSheet(undefined)}>
+          {beaten && beaten.length > 0 && (
+            <div className="card stack records-card">
+              <b>New personal best{beaten.length === 1 ? '' : 's'}</b>
+              {beaten.map((line) => (
+                <span key={line} className="sub">
+                  {line}
+                </span>
+              ))}
             </div>
-
-            <TrackSummary workout={w} />
-
-            {beaten && beaten.length > 0 && (
-              <div className="card stack records-card">
-                <b>New personal best{beaten.length === 1 ? '' : 's'}</b>
-                {beaten.map((line) => (
-                  <span key={line} className="sub">
-                    {line}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="ask">
-              <h2>How hard was it?</h2>
-              <Chips
-                className="five"
-                options={RPE}
-                value={w.rpe as (typeof RPE)[number] | undefined}
-                onChange={(v) => patch({ rpe: v })}
+          )}
+          <div className="ask">
+            <h2>How hard was it?</h2>
+            <Chips className="five" options={RPE} value={w?.rpe as (typeof RPE)[number] | undefined} onChange={(v) => patch({ rpe: v })} />
+          </div>
+          <div className="ask">
+            <h2>How is your back?</h2>
+            <Chips
+              className="two"
+              options={BACK_OPTIONS}
+              value={w?.backResponse as (typeof BACK_OPTIONS)[number] | undefined}
+              onChange={(v) => patch({ backResponse: v })}
+            />
+          </div>
+          {w && (
+            <label className="ask">
+              <span className="q">Notes</span>
+              <textarea
+                className="input"
+                defaultValue={w.notes ?? ''}
+                placeholder="Anything worth remembering next time"
+                onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
               />
-            </div>
-
-            <div className="ask">
-              <h2>How is your back?</h2>
-              <Chips
-                className="two"
-                options={BACK_OPTIONS}
-                value={w.backResponse as (typeof BACK_OPTIONS)[number] | undefined}
-                onChange={(v) => patch({ backResponse: v })}
-              />
-            </div>
-
-            {noting ? (
-              <label className="ask">
-                <span className="q">Notes</span>
-                <textarea
-                  key={w.id}
-                  className="input"
-                  autoFocus={!w.notes}
-                  defaultValue={w.notes ?? ''}
-                  placeholder="Anything worth remembering next time"
-                  onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
-                />
-              </label>
-            ) : (
-              <button className="btn ghost" onClick={() => setNoting(true)}>
-                Add a note
-              </button>
-            )}
-          </div>
-          <div className="s-foot">
-            <button className="btn primary big block" onClick={() => finish('done')}>
-              Save session
-            </button>
-          </div>
-        </>
+            </label>
+          )}
+          <button className="btn primary big block" onClick={() => finish('done')}>
+            Save session
+          </button>
+        </Sheet>
       )}
 
-      {sheet === 'options' && (
+      {sheet === 'details' && w && (
         <Sheet
           title={w.title}
           onClose={() => {
@@ -845,110 +837,124 @@ export default function SessionFlow({
           }}
         >
           {items.length > 0 && w.prescription && <p className="prescription">{w.prescription}</p>}
+
+          {w.status !== 'in_progress' && (
+            <>
+              <div className="grid-2">
+                <Field label="Time (min)">
+                  <NumInput ariaLabel="Minutes" unit="min" value={w.minutes} onCommit={(v) => patch({ minutes: v })} />
+                </Field>
+                <Field label="Date">
+                  <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
+                </Field>
+              </div>
+              <div className="field">
+                <span>Effort (RPE)</span>
+                <Chips className="five" options={RPE} value={w.rpe as (typeof RPE)[number] | undefined} onChange={(v) => patch({ rpe: v })} />
+              </div>
+              <div className="field">
+                <span>Back response</span>
+                <Chips
+                  className="two"
+                  options={BACK_OPTIONS}
+                  value={w.backResponse as (typeof BACK_OPTIONS)[number] | undefined}
+                  onChange={(v) => patch({ backResponse: v })}
+                />
+              </div>
+              <Field label="Notes">
+                <textarea
+                  defaultValue={w.notes ?? ''}
+                  placeholder="Anything worth remembering next time"
+                  onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
+                />
+              </Field>
+              {w.autoClosed && <p className="sub">Closed by the app at the end of its day.</p>}
+            </>
+          )}
+
           {items.length > 0 && (
             <>
               <SectionTitle action={<button onClick={() => setEditList((v) => !v)}>{editList ? 'Done' : 'Change'}</button>}>
                 Exercises
               </SectionTitle>
-              <div className="card flush">
-                {items.map((i, n) => {
-                  const entries = entriesFor(i);
-                  const isDone = focus ? complete(i) : checked.has(i.id);
-                  const label = (
-                    <>
-                      <span className={`tick${isDone ? ' done' : ''}`}>{isDone ? Icon.check : null}</span>
+              {editList && (
+                <div className="card flush">
+                  {items.map((i, n) => (
+                    <div key={i.id} className="row tools">
                       <div className="grow">
                         <div className="title">{nameOf(i)}</div>
-                        {focus && (
-                          <div className="sub">
-                            {loggedSets(entries).length} of {setCount(i, entries)} sets
-                          </div>
-                        )}
                       </div>
-                    </>
-                  );
-                  if (editList) {
-                    return (
-                      <div key={i.id} className="row tools">
-                        {label}
-                        <button className="icon-btn sm" aria-label={`Move ${nameOf(i)} up`} disabled={n === 0} onClick={() => moveItem(w.id, i.id, -1)}>
-                          {Icon.chevUp}
-                        </button>
-                        <button
-                          className="icon-btn sm"
-                          aria-label={`Move ${nameOf(i)} down`}
-                          disabled={n === items.length - 1}
-                          onClick={() => moveItem(w.id, i.id, 1)}
-                        >
-                          {Icon.chevDown}
-                        </button>
-                        <button
-                          className="icon-btn sm"
-                          aria-label={`Swap ${nameOf(i)} for another exercise`}
-                          onClick={() => {
-                            setSwapping(i.id);
-                            setSheet('swap');
-                          }}
-                        >
-                          {Icon.swap}
-                        </button>
-                        <button className="icon-btn sm danger" aria-label={`Remove ${nameOf(i)}`} onClick={() => dropItem(i)}>
-                          {Icon.trash}
-                        </button>
-                      </div>
-                    );
-                  }
-                  return focus ? (
-                    <button
-                      key={i.id}
-                      className="row"
-                      aria-current={n === at ? 'step' : undefined}
-                      onClick={() => {
-                        setCurrentId(i.id);
-                        setSheet(undefined);
-                        setView('log');
-                      }}
-                    >
-                      {label}
-                      {n === at && <span className="badge">Here</span>}
-                    </button>
-                  ) : (
-                    <div key={i.id} className="row">
-                      {label}
+                      <button className="icon-btn sm" aria-label={`Move ${nameOf(i)} up`} disabled={n === 0} onClick={() => moveItem(w.id, i.id, -1)}>
+                        {Icon.chevUp}
+                      </button>
+                      <button
+                        className="icon-btn sm"
+                        aria-label={`Move ${nameOf(i)} down`}
+                        disabled={n === items.length - 1}
+                        onClick={() => moveItem(w.id, i.id, 1)}
+                      >
+                        {Icon.chevDown}
+                      </button>
+                      <button
+                        className="icon-btn sm"
+                        aria-label={`Swap ${nameOf(i)} for another exercise`}
+                        onClick={() => {
+                          setSwapping(i.id);
+                          setSheet('swap');
+                        }}
+                      >
+                        {Icon.swap}
+                      </button>
+                      <button className="icon-btn sm danger" aria-label={`Remove ${nameOf(i)}`} onClick={() => dropItem(i)}>
+                        {Icon.trash}
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
-          <Field label="Date">
-            <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
-          </Field>
+
+          {w.status === 'in_progress' && (
+            <Field label="Date">
+              <input type="date" value={w.date} max={isoDate()} onChange={(e) => e.target.value && setDate(e.target.value)} />
+            </Field>
+          )}
           <div className="grid-2">
             <button className="btn" onClick={() => setSheet('pick')}>
               Add exercise
             </button>
             {items.length > 0 && (
+              <button className="btn" onClick={() => void patch({ logStyle: w.logStyle === 'sets' ? 'session' : 'sets' })}>
+                {w.logStyle === 'sets' ? 'Tick-off list' : 'Log set by set'}
+              </button>
+            )}
+            {w.status !== 'in_progress' && (
+              <button className="btn" onClick={() => void patch({ status: 'in_progress', autoClosed: undefined })}>
+                Reopen
+              </button>
+            )}
+            {!w.routineId && items.length > 0 && (
               <button
                 className="btn"
-                onClick={() => {
-                  void patch({ logStyle: w.logStyle === 'sets' ? 'session' : 'sets' });
-                  setSheet(undefined);
+                onClick={async () => {
+                  const r = routineFromWorkout(w, await db.routines.where('spaceId').equals(w.spaceId).count());
+                  await db.routines.add(r);
+                  toast('Saved as a routine.');
+                  nav(`/routine/${r.id}`);
                 }}
               >
-                {w.logStyle === 'sets' ? 'Tick-off list' : 'Log set by set'}
+                Save as routine
               </button>
             )}
             <button className="btn" onClick={() => ask(() => buildWorkoutContext(db, w))}>
               Ask Claude
             </button>
-            <Link
-              className="btn"
-              to={`/track/${w.id}${focus && exercise && item && ['distance', 'time'].includes(exercise.measure) ? `?item=${item.id}` : ''}`}
-            >
+            <Link className="btn" to={`/track/${w.id}`}>
               Track with GPS
             </Link>
-            {w.programmeId && (
+            {w.status !== 'in_progress' && <GpxImport workout={w} label="Add a GPX route" />}
+            {w.programmeId && w.status === 'in_progress' && (
               <button className="btn" onClick={() => finish('skipped')}>
                 Skip session
               </button>
@@ -960,31 +966,172 @@ export default function SessionFlow({
         </Sheet>
       )}
 
-      {sheet === 'pick' && (
+      {sheet === 'pick' && w && (
         <ExercisePicker
           spaceId={w.spaceId}
-          onClose={() => setSheet(undefined)}
+          onClose={() => setSheet('details')}
           onPick={(e) => {
-            const added = { id: uid(), exerciseId: e.id, sets: 3 };
-            void patch({ items: [...w.items, added], logStyle: w.items.length ? w.logStyle : 'sets' });
-            if (w.logStyle === 'sets' || !w.items.length) setCurrentId(added.id);
+            void patch({ items: [...w.items, { id: uid(), exerciseId: e.id, sets: 3 }], logStyle: w.items.length ? w.logStyle : 'sets' });
             setSheet(undefined);
           }}
         />
       )}
 
-      {sheet === 'swap' && swapping && (
+      {sheet === 'swap' && swapping && w && (
         <ExercisePicker
           spaceId={w.spaceId}
           title="Swap exercise"
-          onClose={() => setSheet('options')}
+          onClose={() => setSheet('details')}
           onPick={async (e) => {
             const target = items.find((i) => i.id === swapping);
-            setSheet('options');
+            setSheet('details');
             if (!target || target.exerciseId === e.id) return;
             if (await sureAbout(target, `Swap ${nameOf(target)}?`, 'Swap exercise')) await swapItem(w.id, target.id, e.id);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ── The exercise screen: the only place with inputs ──────── */
+
+export function ExerciseFlow({
+  workout: w,
+  startId,
+  space,
+  sets,
+  exercises,
+}: {
+  workout: Workout;
+  /** The exercise opened. A superset moves between its exercises here, without leaving the screen. */
+  startId: string;
+  space?: Space;
+  sets: SetEntry[];
+  exercises: Exercise[];
+}) {
+  const timer = useTimer();
+  const { toast } = useFeedback();
+  const savedHint = useSavedHint();
+  const back = useBack(`/workout/${w.id}`);
+  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
+  const items = w.items.filter((i) => exerciseById.has(i.exerciseId));
+  const entriesFor = (item: RoutineItem) => sets.filter((s) => s.itemId === item.id);
+  const complete = (item: RoutineItem) => setsDone(item, entriesFor(item)) >= setCount(item, entriesFor(item));
+  const [currentId, setCurrentId] = useState(startId);
+  const live = w.status === 'in_progress';
+
+  // A finished rest ends itself, so the next set is simply waiting.
+  const restOver = timer.active && timer.name === REST_TIMER && !!timer.position?.done;
+  const stopTimer = timer.stop;
+  useEffect(() => {
+    if (restOver) stopTimer();
+  }, [restOver, stopTimer]);
+
+  const item = items.find((i) => i.id === currentId) ?? items.find((i) => i.id === startId);
+  const exercise = item && exerciseById.get(item.exerciseId);
+  if (!item || !exercise) {
+    return (
+      <div className="session">
+        <header className="s-head">
+          <button className="icon-btn" aria-label="Back" onClick={back}>
+            {Icon.back}
+          </button>
+        </header>
+        <div className="s-body top">
+          <div className="empty">This exercise is no longer in the session.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const nameOf = (i: RoutineItem) => exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
+  const group = item.group ? items.filter((i) => i.group === item.group) : [item];
+  const restFor = (i: RoutineItem) => i.rest ?? group.find((g) => g.rest)?.rest;
+  const turnNext = group.slice(group.indexOf(item) + 1).find((i) => !complete(i));
+
+  const changeRest = async (i: RoutineItem, by: number) => {
+    const next = Math.min(600, Math.max(0, (restFor(i) ?? 0) + by)) || undefined;
+    const saved = await setItemRest(w.id, i.id, next);
+    if (!saved) toast(`${next ? `Rest ${formatSeconds(next)}` : 'No rest'} for this session.`);
+    else await savedHint(true);
+  };
+
+  /** After a set: the next exercise in the round, or rest and go again. Finishing is left to you. */
+  const afterSet = (more: boolean) => {
+    if (turnNext) {
+      setCurrentId(turnNext.id);
+      return;
+    }
+    const again = group.find((i) => (i.id === item.id ? more : !complete(i)));
+    if (!again) return;
+    const rest = restFor(item);
+    if (rest && live) timer.start(countdownPhases(rest), REST_TIMER);
+    setCurrentId(again.id);
+  };
+
+  /** Tick the exercise (and the rest of its superset) and go back to the list, resting on the way if due. */
+  const finishExercise = async () => {
+    const fresh = await db.workouts.get(w.id);
+    const ticked = new Set(fresh?.checked ?? []);
+    for (const g of group) ticked.add(g.id);
+    await db.workouts.update(w.id, { checked: [...ticked] });
+    const rest = restFor(item);
+    const othersLeft = items.some((i) => !group.includes(i) && !ticked.has(i.id) && !complete(i));
+    if (rest && live && othersLeft && !(timer.active && timer.name === REST_TIMER)) timer.start(countdownPhases(rest), REST_TIMER);
+    back();
+  };
+
+  return (
+    <div className="session" style={{ ['--space' as string]: space?.color }}>
+      <header className="s-head">
+        <button className="icon-btn" aria-label={`Back to ${w.title}`} onClick={back}>
+          {Icon.back}
+        </button>
+        <div className="mid">
+          <b>{w.title}</b>
+          {group.length > 1 && <small>{`${group.length > 2 ? 'Circuit' : 'Superset'}, ${group.indexOf(item) + 1} of ${group.length}`}</small>}
+        </div>
+      </header>
+
+      {w.logStyle === 'sets' ? (
+        <FocusExercise
+          key={item.id}
+          workout={w}
+          item={item}
+          exercise={exercise}
+          entries={entriesFor(item)}
+          onFinish={() => void finishExercise()}
+          onAddSet={async () => {
+            await addSet(w.id, item.id);
+            await savedHint(await writeBack(w.id, item.id));
+          }}
+          onPlanChanged={async () => savedHint(await writeBack(w.id, item.id))}
+          onSetDone={afterSet}
+          groupNote={group.length > 1 ? `${group.length > 2 ? 'Circuit' : 'Superset'}, ${group.indexOf(item) + 1} of ${group.length}` : undefined}
+          nextNote={turnNext ? `then ${nameOf(turnNext)}` : restFor(item) ? `then rest ${formatSeconds(restFor(item)!)}` : ''}
+          rest={restFor(item)}
+          onRest={(by) => void changeRest(item, by)}
+        />
+      ) : (
+        // A tick-off session: nothing to type, only what to do.
+        <>
+          <div className="s-body">
+            <div className="s-title">
+              <h1>{exercise.name}</h1>
+            </div>
+            {itemSummary(item) && <p className="s-target">{itemSummary(item)}</p>}
+            {item.note && <p className="prescription">{item.note}</p>}
+            {exercise.cues && <p className="prescription muted">{exercise.cues}</p>}
+            <VideoButton exercise={exercise} />
+          </div>
+          <div className="s-foot">
+            <button className="btn primary big block" onClick={() => void finishExercise()}>
+              Finish exercise
+              {Icon.check}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

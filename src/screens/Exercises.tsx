@@ -6,6 +6,7 @@ import {
   complexTotals,
   describeParts,
   exerciseHistory,
+  formatSeconds,
   summariseSets,
   totalRounds,
   type ExerciseSession,
@@ -15,7 +16,7 @@ import { buildExerciseContext } from '../lib/claude';
 import { useAskClaude } from '../actions';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { cleanUrl, videoFor, videoSearchUrl } from '../lib/videos';
-import { METRIC_LABEL, METRIC_UNIT, metricsFor, metricValue, records, sideGap, type Metric } from '../lib/stats';
+import { BODY_WEIGHT_KEY, METRIC_LABEL, METRIC_UNIT, metricsFor, metricValue, records, sideGap, type Metric } from '../lib/stats';
 import { LineChart } from '../charts';
 import { Chips, Field, Icon, MultiChips, Page, SectionTitle, Sheet, useFeedback } from '../ui';
 import { EQUIPMENT, equipmentLabel, kitList, needsOf } from '../lib/equipment';
@@ -123,25 +124,74 @@ export function VideoButton({ exercise }: { exercise: Exercise }) {
 }
 
 /** An exercise's progress by a chosen measure, with its bests underneath. */
-function ProgressCard({ sessions, measure }: { sessions: ExerciseSession[]; measure: Measure }) {
-  const options = metricsFor(measure);
-  const [metric, setMetric] = useState<Metric>(options[0]);
-  const points = [...sessions]
+/** "1:05" for times and paces, a tidy number otherwise. */
+const metricText = (metric: Metric, v: number): string =>
+  metric === 'time' || metric === 'hold' || metric === 'pace'
+    ? formatSeconds(Math.round(v))
+    : Math.abs(v) >= 100
+      ? Math.round(v).toLocaleString('en-GB')
+      : String(Math.round(v * 10) / 10);
+
+function ProgressCard({ sessions, measure, bodyWeight }: { sessions: ExerciseSession[]; measure: Measure; bodyWeight?: number }) {
+  const nav = useNavigate();
+  const timed = sessions.some((s) => s.sets.some((x) => x.seconds != null && x.metres));
+  const options = metricsFor(measure, { bodyWeight, timed });
+  const [chosen, setMetric] = useState<Metric>(options[0]);
+  const metric = options.includes(chosen) ? chosen : options[0];
+  const series = [...sessions]
     .reverse()
-    .map((s) => ({ date: s.date, v: metricValue(s.sets, metric) }))
-    .filter((p): p is { date: string; v: number } => p.v != null)
-    .slice(-30)
-    .map((p) => ({ label: niceDate(p.date).slice(4), title: niceDate(p.date), value: p.v }));
+    .map((s) => ({ s, v: metricValue(s.sets, metric, { bodyWeight }) }))
+    .filter((p): p is { s: ExerciseSession; v: number } => p.v != null)
+    .slice(-30);
+  const points = series.map((p) => ({ label: niceDate(p.s.date).slice(4), title: niceDate(p.s.date), value: p.v }));
   const bests = records(sessions.flatMap((s) => s.sets), measure);
   const gap = sideGap(sessions[0]?.sets ?? []);
   if (points.length < 2 && !bests.length) return null;
+  // A pace is best when lowest; everything else when highest.
+  const values = series.map((p) => p.v);
+  const best = values.length ? (metric === 'pace' ? Math.min(...values) : Math.max(...values)) : undefined;
+  const latest = values[values.length - 1];
+  const unit = metric === 'pace' ? '/km' : metric === 'time' || metric === 'hold' ? '' : METRIC_UNIT[metric];
   return (
     <div className="card stack">
       {options.length > 1 && <Chips options={options} value={metric} onChange={(v) => v && setMetric(v)} label={(k) => METRIC_LABEL[k]} />}
+      {best != null && latest != null && (
+        <div className="best-latest">
+          <div>
+            <small>Best</small>
+            <b>
+              {metricText(metric, best)} {unit}
+            </b>
+          </div>
+          <div>
+            <small>Latest</small>
+            <b>
+              {metricText(metric, latest)} {unit}
+            </b>
+          </div>
+        </div>
+      )}
       {points.length >= 2 ? (
-        <LineChart points={points} name={METRIC_LABEL[metric]} unit={METRIC_UNIT[metric]} />
+        <LineChart
+          points={points}
+          name={METRIC_LABEL[metric]}
+          unit={unit}
+          format={(v) => metricText(metric, v)}
+          onOpen={(i) => nav(`/workout/${series[i].s.workoutId}`)}
+        />
       ) : (
         <p className="sub">A chart appears after two sessions.</p>
+      )}
+      {metric === 'volume' && <p className="sub">Workload: weight × reps, added up over every set.</p>}
+      {metric === 'bodyload' && <p className="sub">Approximate: your body weight plus anything added, times reps, over every set.</p>}
+      {measure === 'reps' && !bodyWeight && (
+        <p className="sub">
+          Charted as total reps. Add your body weight in{' '}
+          <Link className="link" to="/settings">
+            Settings
+          </Link>{' '}
+          for an approximate workload.
+        </p>
       )}
       {bests.map((r) => (
         <Link key={r.label} to={`/workout/${r.workoutId}`} className="spread record">
@@ -293,13 +343,14 @@ export function ExerciseDetail() {
   const data = useLiveQuery(async () => {
     const exercise = await db.exercises.get(id);
     if (!exercise) return { exercise: null };
-    const [history, routines, spaces] = await Promise.all([
+    const [history, routines, spaces, bw] = await Promise.all([
       exerciseHistory(db, exercise),
       db.routines.toArray(),
       db.spaces.toArray(),
+      db.settings.get(BODY_WEIGHT_KEY),
     ]);
     const used = routines.filter((r) => r.items.some((i) => i.exerciseId === id));
-    return { exercise, history, used, spaces };
+    return { exercise, history, used, spaces, bodyWeight: typeof bw?.value === 'number' ? bw.value : undefined };
   }, [id]);
 
   if (!data) return null;
@@ -310,7 +361,7 @@ export function ExerciseDetail() {
       </Page>
     );
   }
-  const { exercise: e, history = [], used = [], spaces = [] } = data;
+  const { exercise: e, history = [], used = [], spaces = [], bodyWeight } = data;
 
   const remove = async () => {
     if (used.length) {
@@ -389,7 +440,7 @@ export function ExerciseDetail() {
         Ask Claude about this
       </button>
 
-      <ProgressCard key={e.measure} sessions={history} measure={e.measure} />
+      <ProgressCard key={e.measure} sessions={history} measure={e.measure} bodyWeight={bodyWeight} />
 
       <SectionTitle>History</SectionTitle>
       <div className="card flush">

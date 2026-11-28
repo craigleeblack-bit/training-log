@@ -210,6 +210,7 @@ export async function saveSet(
       ...(side ? { side } : {}),
       ...current,
       ...changes,
+      at: Date.now(),
     };
     // A pair of bells is twice the load: keep the count beside the per-bell weight.
     const count = loadCount(item.load);
@@ -242,6 +243,39 @@ export async function setItemRest(workoutId: string, itemId: string, seconds: nu
     await db.routines.update(r.id, { items: r.items.map((i) => (i.id === itemId ? { ...i, rest: seconds } : i)) });
     return true;
   });
+}
+
+/** What of a session's exercise is the plan, and so carries on into the routine. */
+const PLAN_FIELDS = ['sets', 'reps', 'load', 'rest', 'repsBySet', 'note', 'eachSide'] as const;
+
+/**
+ * Copy an exercise's plan (sets, reps, load, rest, per-set reps, note, sides) from this session
+ * to the routine it came from, so the routine itself moves on. Gives back whether there was one to update.
+ */
+export async function writeBack(workoutId: string, itemId: string): Promise<boolean> {
+  return db.transaction('rw', db.workouts, db.routines, async () => {
+    const w = await db.workouts.get(workoutId);
+    const item = w?.items.find((i) => i.id === itemId);
+    const r = w?.routineId ? await db.routines.get(w.routineId) : undefined;
+    if (!item || !r?.items.some((i) => i.id === itemId)) return false;
+    const items = r.items.map((i) => {
+      if (i.id !== itemId) return i;
+      const next = { ...i };
+      for (const k of PLAN_FIELDS) {
+        if (item[k] === undefined) delete next[k];
+        else (next as Record<string, unknown>)[k] = item[k];
+      }
+      return next;
+    });
+    await db.routines.update(r.id, { items });
+    return true;
+  });
+}
+
+/** Change an exercise's plan in this session and in its routine. Gives back whether the routine took it. */
+export async function changePlan(workoutId: string, itemId: string, change: (i: RoutineItem) => RoutineItem): Promise<boolean> {
+  await patchItem(workoutId, itemId, change);
+  return writeBack(workoutId, itemId);
 }
 
 /** Give an exercise one more set in this session. */

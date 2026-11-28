@@ -15,7 +15,7 @@ const PAD = { l: 8, r: 8, t: 14, b: 22 };
 const tidy = (n: number): string => (Math.abs(n) >= 100 ? Math.round(n).toLocaleString('en-GB') : String(Math.round(n * 10) / 10));
 
 /** The line under a chart that names the point being touched, or the latest when none is. */
-function ReadOut({ point, unit, format }: { point: Point | undefined; unit?: string; format: (n: number) => string }) {
+function ReadOut({ point, unit, format, onOpen }: { point: Point | undefined; unit?: string; format: (n: number) => string; onOpen?: () => void }) {
   if (!point) return null;
   return (
     <div className="chart-read" aria-live="polite">
@@ -24,6 +24,11 @@ function ReadOut({ point, unit, format }: { point: Point | undefined; unit?: str
         {format(point.value)}
         {unit ? ` ${unit}` : ''}
       </b>
+      {onOpen && (
+        <button type="button" className="chart-open" onClick={onOpen}>
+          Open
+        </button>
+      )}
     </div>
   );
 }
@@ -34,6 +39,8 @@ interface ChartProps {
   name: string;
   unit?: string;
   format?: (n: number) => string;
+  /** Open what a point stands for, such as its session. Offered beside the read-out. */
+  onOpen?: (index: number) => void;
 }
 
 /** One series as bars from a zero baseline: good for totals per week. Touch a bar to read it. */
@@ -82,7 +89,7 @@ export function BarChart({ points, name, unit, format = tidy }: ChartProps) {
 }
 
 /** One series as a line: good for a measure that moves from session to session. Touch a point to read it. */
-export function LineChart({ points, name, unit, format = tidy }: ChartProps) {
+export function LineChart({ points, name, unit, format = tidy, onOpen }: ChartProps) {
   const [at, setAt] = useState<number>();
   if (points.length < 2) return null;
   const lo = Math.min(...points.map((p) => p.value));
@@ -111,7 +118,7 @@ export function LineChart({ points, name, unit, format = tidy }: ChartProps) {
           </g>
         ))}
       </svg>
-      <ReadOut point={points[cur]} unit={unit} format={format} />
+      <ReadOut point={points[cur]} unit={unit} format={format} onOpen={onOpen && (() => onOpen(cur))} />
     </div>
   );
 }

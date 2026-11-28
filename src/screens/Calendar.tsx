@@ -42,7 +42,7 @@ export default function Calendar() {
   };
 
   return (
-    <Page title="Calendar" back="/plan">
+    <Page title="Calendar" back>
       <div className="month-head">
         <button className="icon-btn boxed" aria-label="Previous month" onClick={() => go(-1)}>
           {Icon.back}
