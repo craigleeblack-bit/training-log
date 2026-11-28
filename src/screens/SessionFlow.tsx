@@ -30,7 +30,7 @@ import {
 } from '../lib/logging';
 import { deleteWorkout, useAskClaude } from '../actions';
 import { useTimer } from '../timerContext';
-import { Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
+import { Block, Chips, Field, Icon, NumInput, SectionTitle, Sheet, parseDuration, useFeedback } from '../ui';
 import { ExercisePicker, itemSummary } from './RoutineEdit';
 import { VideoButton } from './Exercises';
 import TrackSummary from './TrackSummary';
@@ -101,11 +101,8 @@ function FocusExercise({
   item,
   exercise,
   entries,
-  isLast,
-  onNext,
-  onWrap,
+  onDone,
   onAddSet,
-  onOptions,
   onSetDone,
   groupNote,
   nextNote,
@@ -116,11 +113,9 @@ function FocusExercise({
   item: RoutineItem;
   exercise: Exercise;
   entries: SetEntry[];
-  isLast: boolean;
-  onNext: () => void;
-  onWrap: () => void;
+  /** Back to the session's blocks. */
+  onDone: () => void;
   onAddSet: () => void;
-  onOptions: () => void;
   /** A whole set has just been logged. `more` says whether this exercise has sets left. */
   onSetDone: (more: boolean) => void;
   /** "Superset 1 of 2", when this exercise is done in turn with others. */
@@ -136,7 +131,7 @@ function FocusExercise({
   const { toast, confirm } = useFeedback();
   const [picked, setPicked] = useState<Slot>();
   const [draft, setDraft] = useState<Record<string, SetValues>>({});
-  const [reading, setReading] = useState<'cues' | 'notes'>();
+  const [info, setInfo] = useState(false);
   const last = useLiveQuery(() => lastTime(db, exercise.id, { workoutId: workout.id }), [exercise.id, workout.id]);
 
   const cols = COLUMNS[exercise.measure];
@@ -314,63 +309,20 @@ function FocusExercise({
   }
 
   const summary = itemSummary(item) || exercise.equipment;
-  const cue = item.note ?? exercise.cues?.split('\n').find((l) => l.trim());
 
   return (
     <>
       <div className="s-body">
-        <div className="s-intro">
-          <div className="s-title">
-            <div>
-              <h1>{exercise.name}</h1>
-              {summary && <p>{summary}</p>}
-              {last && (
-                <p className="last-line">
-                  Last time: {setsLine(last.sets, exercise.measure)}, {niceDate(last.date).replace(/^\w+ /, '')}
-                </p>
-              )}
-              {groupNote && <p className="group-note">{groupNote}</p>}
-              {exercise.parts?.length ? <p>Each round: {describeParts(exercise.parts)}</p> : null}
-            </div>
-            <button className="icon-btn boxed" aria-label="Session options" onClick={onOptions}>
-              {Icon.more}
-            </button>
-          </div>
-          {cue && (
-            <button className="cue" onClick={() => setReading('cues')}>
-              {Icon.info}
-              <span>{cue}</span>
-              {Icon.chevDown}
-            </button>
-          )}
-          {workout.prescription && (
-            <button className="cue" onClick={() => setReading('notes')}>
-              {Icon.plan}
-              <span>Session notes</span>
-              {Icon.chevDown}
-            </button>
-          )}
+        <div className="s-title">
+          <h1>{exercise.name}</h1>
+          <button className="icon-btn boxed" aria-label={`About ${exercise.name}`} onClick={() => setInfo(true)}>
+            {Icon.info}
+          </button>
         </div>
 
-        <div className="sets-wrap">
-          <div className="sets-head">
-            <span>
-              {setsDone(item, entries)} of {rows} sets
-            </span>
-            <div className="mini-pm">
-              <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
-                {Icon.minus}
-              </button>
-              <button type="button" className="add-set" aria-label="Add a set" onClick={onAddSet}>
-                {Icon.plus}
-                Set
-              </button>
-            </div>
-          </div>
-          <div className={`sets${rows > 4 ? ' many' : ''}`} style={{ ['--n' as string]: rows }}>
+        <div className={`sets${rows > 4 ? ' many' : ''}`} style={{ ['--n' as string]: rows }}>
           {range.map((n) => {
             const entry = logged(n);
-            const before = last?.sets.find((s) => s.setNo === n);
             const now = n === current;
             const target = item.repsBySet?.[n - 1];
             return (
@@ -398,25 +350,9 @@ function FocusExercise({
                     'Next'
                   )}
                 </span>
-                {last && <span className="set-last">{before ? `Last ${compactSet(before, exercise.measure)}` : ' '}</span>}
               </button>
             );
           })}
-          </div>
-        </div>
-
-        <div className="rest-row">
-          <span>
-            Rest <b>{rest ? formatSeconds(rest) : 'none'}</b>
-          </span>
-          <div className="mini-pm">
-            <button type="button" aria-label="15 seconds less rest" disabled={!rest} onClick={() => onRest(-15)}>
-              − 15 s
-            </button>
-            <button type="button" aria-label="15 seconds more rest" onClick={() => onRest(15)}>
-              + 15 s
-            </button>
-          </div>
         </div>
 
         {current != null && item.eachSide && (
@@ -446,7 +382,6 @@ function FocusExercise({
           <div className="all-done">
             <span className="bigcheck">{Icon.check}</span>
             <b>All {rows} sets logged</b>
-            <span className="sub">Tap a set above to change it.</span>
           </div>
         )}
       </div>
@@ -454,8 +389,8 @@ function FocusExercise({
       <div className="s-foot">
         {current == null ? (
           <>
-            <button className="btn primary big block" onClick={isLast ? onWrap : onNext}>
-              {isLast ? 'Wrap up' : 'Next exercise'}
+            <button className="btn primary big block" onClick={onDone}>
+              Done
               {Icon.arrow}
             </button>
             <button className="quiet" onClick={onAddSet}>
@@ -473,39 +408,73 @@ function FocusExercise({
             </button>
           </>
         ) : (
-          <>
-            <button className="btn primary big block spread" onClick={log}>
-              <span>
-                {/* One tap logs exactly what is shown: last time's numbers unless changed. */}
-                {cols.some((c) => vals[c.key] != null) ? `Log ${compactSet(vals, exercise.measure)}` : `Log set ${current}`}
-                {sideWord && `, ${sideWord}`}
-              </span>
-              <span className="then">
-                {closesSet ? nextNote : 'then the other side'}
-                {Icon.arrow}
-              </span>
-            </button>
-            <button className="quiet" onClick={isLast ? onWrap : onNext}>
-              {isLast ? 'Skip to wrap up' : 'Skip this exercise'}
-            </button>
-          </>
+          <button className="btn primary big block spread" onClick={log}>
+            <span>
+              {/* One tap logs exactly what is shown: last time's numbers unless changed. */}
+              {cols.some((c) => vals[c.key] != null) ? `Log ${compactSet(vals, exercise.measure)}` : `Log set ${current}`}
+              {sideWord && `, ${sideWord}`}
+            </span>
+            <span className="then">
+              {closesSet ? nextNote : 'then the other side'}
+              {Icon.arrow}
+            </span>
+          </button>
         )}
       </div>
 
-      {reading === 'cues' && (
-        <Sheet title={exercise.name} onClose={() => setReading(undefined)}>
+      {info && (
+        // Everything about the exercise that is not needed to log the next set.
+        <Sheet title={exercise.name} onClose={() => setInfo(false)}>
+          {(summary || groupNote) && <p className="sub">{[summary, groupNote].filter(Boolean).join(' · ')}</p>}
+          {last && (
+            <div className="lasttime">
+              <small>Last time</small>
+              <b>{niceDate(last.date)}</b>
+              <span>{setsLine(last.sets, exercise.measure)}</span>
+            </div>
+          )}
+          {exercise.parts?.length ? <p>Each round: {describeParts(exercise.parts)}</p> : null}
           {item.note && <p>{item.note}</p>}
           {exercise.cues && <p className="prescription">{exercise.cues}</p>}
           {exercise.adjustments && <p className="prescription muted">{exercise.adjustments}</p>}
+          {workout.prescription && (
+            <div className="lasttime">
+              <small>Session notes</small>
+              <p className="prescription">{workout.prescription}</p>
+            </div>
+          )}
+
+          <div className="rest-row">
+            <span>
+              Rest <b>{rest ? formatSeconds(rest) : 'none'}</b>
+            </span>
+            <div className="mini-pm">
+              <button type="button" aria-label="15 seconds less rest" disabled={!rest} onClick={() => onRest(-15)}>
+                − 15 s
+              </button>
+              <button type="button" aria-label="15 seconds more rest" onClick={() => onRest(15)}>
+                + 15 s
+              </button>
+            </div>
+          </div>
+          <div className="rest-row">
+            <span>
+              Sets <b>{rows}</b>
+            </span>
+            <div className="mini-pm">
+              <button type="button" aria-label="Remove the last set" disabled={rows <= 1} onClick={() => remove(rows)}>
+                {Icon.minus}
+              </button>
+              <button type="button" aria-label="Add a set" onClick={onAddSet}>
+                {Icon.plus}
+              </button>
+            </div>
+          </div>
+
           <VideoButton exercise={exercise} />
           <Link className="btn" to={`/exercise/${exercise.id}`}>
             Exercise details and history
           </Link>
-        </Sheet>
-      )}
-      {reading === 'notes' && (
-        <Sheet title="Session notes" onClose={() => setReading(undefined)}>
-          <p className="prescription">{workout.prescription}</p>
         </Sheet>
       )}
     </>
@@ -534,7 +503,9 @@ export default function SessionFlow({
   const entriesFor = (item: RoutineItem) => sets.filter((s) => s.itemId === item.id);
   const complete = (item: RoutineItem) => setsDone(item, entriesFor(item)) >= setCount(item, entriesFor(item));
 
-  const [view, setView] = useState<'log' | 'wrap'>('log');
+  // The session opens on its blocks; tapping one opens the set logger for it.
+  const [view, setView] = useState<'list' | 'log' | 'wrap'>('list');
+  const [noting, setNoting] = useState(!!w.notes);
   const [sheet, setSheet] = useState<'options' | 'pick' | 'swap'>();
   const [editList, setEditList] = useState(false);
   const [swapping, setSwapping] = useState<string>();
@@ -605,14 +576,19 @@ export default function SessionFlow({
       return;
     }
     const again = group.find((i) => (i.id === item.id ? more : !complete(i)));
-    const onward = again ?? items[items.indexOf(group[group.length - 1]) + 1];
-    if (!onward) {
+    const left = items.find((i) => !group.includes(i) && !complete(i));
+    if (!again && !left) {
       setView('wrap');
       return;
     }
     const rest = restFor(item);
     if (rest) timer.start(countdownPhases(rest), REST_TIMER);
-    setCurrentId(onward.id);
+    if (again) {
+      setCurrentId(again.id);
+      return;
+    }
+    setCurrentId(left!.id);
+    setView('list');
   };
 
   /** Losing logged sets is worth a question first; an untouched exercise just goes. */
@@ -646,72 +622,130 @@ export default function SessionFlow({
     }
   };
 
-  const doneExercises = focus
-    ? items.filter((i) => loggedSets(entriesFor(i)).length > 0).length
-    : items.filter((i) => checked.has(i.id)).length;
   const setsLogged = loggedSets(sets).length;
 
-  const sub =
-    view === 'wrap'
-      ? undefined
-      : focus
-        ? `Exercise ${at + 1} of ${items.length}`
-        : items.length
-          ? `${doneExercises} of ${items.length} done`
-          : space?.name;
+  const pos = timer.position;
+  const resting = timer.active && timer.name === REST_TIMER && !!pos && !pos.done;
+  /** The block to do next: the first not yet complete. */
+  const nextItem = items.find((i) => (focus ? !complete(i) : !checked.has(i.id)));
+  const allDone = items.length > 0 && !nextItem;
+
+  /** Items in runs, so a superset or circuit can sit in one outline. */
+  const runs: RoutineItem[][] = [];
+  for (const i of items) {
+    const prev = runs[runs.length - 1];
+    if (prev && i.group && prev[0].group === i.group) prev.push(i);
+    else runs.push([i]);
+  }
+
+  const blockFor = (i: RoutineItem) => {
+    const entries = entriesFor(i);
+    const of = setCount(i, entries);
+    const done = setsDone(i, entries);
+    const name = nameOf(i);
+    const ticked = checked.has(i.id);
+    return (
+      <Block
+        key={i.id}
+        title={name}
+        sub={itemSummary(i) || undefined}
+        now={i === nextItem}
+        done={focus ? done >= of : ticked}
+        progress={focus ? { done, of } : undefined}
+        ariaLabel={focus ? `${name}, ${done} of ${of} sets` : `${ticked ? 'Untick' : 'Tick'} ${name}`}
+        onClick={() => {
+          if (focus) {
+            setCurrentId(i.id);
+            setView('log');
+            return;
+          }
+          const next = new Set(checked);
+          if (ticked) next.delete(i.id);
+          else next.add(i.id);
+          void patch({ checked: [...next] });
+        }}
+      />
+    );
+  };
 
   return (
     <div className="session" style={{ ['--space' as string]: space?.color }}>
       <header className="s-head">
-        {view === 'wrap' ? (
-          <button className="icon-btn" aria-label="Back to the session" onClick={() => setView('log')}>
-            {Icon.back}
-          </button>
-        ) : (
+        {view === 'list' ? (
           <button className="icon-btn" aria-label="Close, and keep the session open" onClick={() => nav('/')}>
             {Icon.close}
+          </button>
+        ) : (
+          <button className="icon-btn" aria-label={view === 'log' ? 'Back to the exercises' : 'Back to the session'} onClick={() => setView('list')}>
+            {Icon.back}
           </button>
         )}
         <div className="mid">
           <b>{view === 'wrap' ? 'Wrap up' : w.title}</b>
-          {sub && <small>{sub}</small>}
         </div>
-        {view === 'wrap' ? (
-          <span />
-        ) : focus ? (
-          <button className="finish" onClick={() => setView('wrap')}>
-            Finish
-          </button>
-        ) : (
-          <button className="icon-btn end" aria-label="Session options" onClick={() => setSheet('options')}>
-            {Icon.more}
-          </button>
+        {view === 'list' && (
+          <>
+            <button className="icon-btn" aria-label="Session options" onClick={() => setSheet('options')}>
+              {Icon.more}
+            </button>
+            {focus && !allDone && (
+              <button className="finish" onClick={() => setView('wrap')}>
+                Finish
+              </button>
+            )}
+          </>
         )}
       </header>
 
-      {view === 'log' && focus && (
-        <div className="steps" role="tablist" aria-label="Exercises in this session">
-          {items.map((i, n) => {
-            const entries = entriesFor(i);
-            const done = loggedSets(entries).length;
-            const of = setCount(i, entries);
-            return (
+      {view === 'list' && (
+        <>
+          <div className="s-body top">
+            {resting && pos && (
+              <div className="rest-bar">
+                <span>Rest</span>
+                <b role="timer" aria-live="off">
+                  {formatSeconds(Math.ceil(pos.remaining))}
+                </b>
+                <button className="icon-btn" aria-label="Skip the rest" onClick={timer.stop}>
+                  {Icon.close}
+                </button>
+              </div>
+            )}
+            {!items.length && w.prescription && <p className="prescription">{w.prescription}</p>}
+            {items.length > 0 && (
+              <div className="blocks">
+                {runs.map((run) =>
+                  run.length > 1 ? (
+                    <div key={run[0].id} className="block-group">
+                      {run.map(blockFor)}
+                    </div>
+                  ) : (
+                    blockFor(run[0])
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+          <div className="s-foot">
+            {focus && nextItem ? (
               <button
-                key={i.id}
-                type="button"
-                role="tab"
-                aria-selected={n === at}
-                aria-label={`${nameOf(i)}, ${done} of ${of} sets`}
-                className={n === at ? 'here' : ''}
-                onClick={() => setCurrentId(i.id)}
+                className="btn primary big block"
+                onClick={() => {
+                  setCurrentId(nextItem.id);
+                  setView('log');
+                }}
               >
-                <i>
-                  <b style={{ width: `${Math.min(1, done / of) * 100}%` }} />
-                </i>
+                {setsLogged ? 'Continue' : 'Start'}
+                {Icon.arrow}
               </button>
-            );
-          })}
-        </div>
+            ) : (
+              <button className="btn primary big block" onClick={() => setView('wrap')}>
+                Wrap up
+                {Icon.arrow}
+              </button>
+            )}
+          </div>
+        </>
       )}
 
       {view === 'log' && focus && item && exercise && (
@@ -721,9 +755,7 @@ export default function SessionFlow({
           item={item}
           exercise={exercise}
           entries={entriesFor(item)}
-          isLast={at === items.length - 1}
-          onNext={() => setCurrentId(items[at + 1]?.id)}
-          onWrap={() => setView('wrap')}
+          onDone={() => setView('list')}
           onAddSet={() => addSet(w.id, item.id)}
           onSetDone={afterSet}
           groupNote={group.length > 1 ? `${group.length > 2 ? 'Circuit' : 'Superset'}, ${group.indexOf(item) + 1} of ${group.length}` : undefined}
@@ -734,61 +766,9 @@ export default function SessionFlow({
                 ? `then rest ${formatSeconds(restFor(item)!)}`
                 : ''
           }
-          onOptions={() => setSheet('options')}
           rest={restFor(item)}
           onRest={(by) => void changeRest(item, by)}
         />
-      )}
-
-      {view === 'log' && !focus && (
-        <>
-          <div className="s-body top">
-            {w.prescription && (
-              <div className="card">
-                <p className="prescription">{w.prescription}</p>
-              </div>
-            )}
-            {items.length > 0 && (
-              <div className="card flush">
-                {items.map((i) => {
-                  const on = checked.has(i.id);
-                  const name = exerciseById.get(i.exerciseId)?.name ?? 'Exercise';
-                  return (
-                    <div key={i.id} className={`checklist-item${on ? ' on' : ''}`}>
-                      <button
-                        className={`check${on ? ' on' : ''}`}
-                        aria-pressed={on}
-                        aria-label={`${on ? 'Untick' : 'Tick'} ${name}`}
-                        onClick={() => {
-                          const next = new Set(checked);
-                          if (on) next.delete(i.id);
-                          else next.add(i.id);
-                          void patch({ checked: [...next] });
-                        }}
-                      >
-                        {Icon.check}
-                      </button>
-                      <Link to={`/exercise/${i.exerciseId}`} className="grow">
-                        <div className="title">{name}</div>
-                        <div className="sub">{[itemSummary(i), i.note].filter(Boolean).join(', ')}</div>
-                      </Link>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <button className="btn" onClick={() => setSheet('pick')}>
-              {Icon.plus}
-              Add exercise
-            </button>
-          </div>
-          <div className="s-foot">
-            <button className="btn primary big block" onClick={() => setView('wrap')}>
-              Wrap up
-              {Icon.arrow}
-            </button>
-          </div>
-        </>
       )}
 
       {view === 'wrap' && (
@@ -798,35 +778,7 @@ export default function SessionFlow({
               <span className="bigcheck">{Icon.check}</span>
               <div>
                 <h1>{w.title}</h1>
-                <p className="sub">{[space?.name, niceDate(w.date)].filter(Boolean).join(', ')}</p>
               </div>
-            </div>
-
-            <div className="tiles on-bg">
-              <div className="tile">
-                <NumInput
-                  ariaLabel="Minutes"
-                  unit="min"
-                  value={w.minutes}
-                  placeholder={suggestMinutes != null ? String(suggestMinutes) : ''}
-                  onCommit={(v) => patch({ minutes: v })}
-                />
-                <small>Time</small>
-              </div>
-              {items.length > 0 && (
-                <div className="tile">
-                  <b>
-                    {doneExercises} of {items.length}
-                  </b>
-                  <small>Exercises</small>
-                </div>
-              )}
-              {focus && (
-                <div className="tile">
-                  <b>{setsLogged}</b>
-                  <small>Sets</small>
-                </div>
-              )}
             </div>
 
             <TrackSummary workout={w} />
@@ -862,16 +814,23 @@ export default function SessionFlow({
               />
             </div>
 
-            <label className="ask">
-              <span className="q">Notes</span>
-              <textarea
-                key={w.id}
-                className="input"
-                defaultValue={w.notes ?? ''}
-                placeholder="Anything worth remembering next time"
-                onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
-              />
-            </label>
+            {noting ? (
+              <label className="ask">
+                <span className="q">Notes</span>
+                <textarea
+                  key={w.id}
+                  className="input"
+                  autoFocus={!w.notes}
+                  defaultValue={w.notes ?? ''}
+                  placeholder="Anything worth remembering next time"
+                  onBlur={(e) => patch({ notes: e.target.value.trim() || undefined })}
+                />
+              </label>
+            ) : (
+              <button className="btn ghost" onClick={() => setNoting(true)}>
+                Add a note
+              </button>
+            )}
           </div>
           <div className="s-foot">
             <button className="btn primary big block" onClick={() => finish('done')}>
@@ -889,6 +848,7 @@ export default function SessionFlow({
             setEditList(false);
           }}
         >
+          {items.length > 0 && w.prescription && <p className="prescription">{w.prescription}</p>}
           {items.length > 0 && (
             <>
               <SectionTitle action={<button onClick={() => setEditList((v) => !v)}>{editList ? 'Done' : 'Change'}</button>}>
@@ -950,6 +910,7 @@ export default function SessionFlow({
                       onClick={() => {
                         setCurrentId(i.id);
                         setSheet(undefined);
+                        setView('log');
                       }}
                     >
                       {label}

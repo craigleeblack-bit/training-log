@@ -102,6 +102,67 @@ export function Chips<T extends string | number>({
   );
 }
 
+/** One small square per set, filled as each is logged. */
+export function Pips({ done, of }: { done: number; of: number }) {
+  return (
+    <span className="pips" aria-hidden>
+      {Array.from({ length: of }, (_, i) => (
+        <i key={i} className={i < done ? 'on' : undefined} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One thing to do, as a block: a name and one short line. Done shows a tick,
+ * part done shows a pip per set, and "now" is outlined.
+ */
+export function Block({
+  title,
+  sub,
+  done,
+  progress,
+  now,
+  onClick,
+  ariaLabel,
+  className,
+}: {
+  title: ReactNode;
+  sub?: ReactNode;
+  done?: boolean;
+  /** Sets logged so far, shown as pips while the block is part done. */
+  progress?: { done: number; of: number };
+  now?: boolean;
+  onClick?: () => void;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const cls = ['block', done ? 'done' : '', now ? 'now' : '', className ?? ''].filter(Boolean).join(' ');
+  const mark = done ? (
+    <span className="block-mark">{Icon.check}</span>
+  ) : progress && progress.done > 0 ? (
+    <Pips done={progress.done} of={progress.of} />
+  ) : null;
+  const body = (
+    <>
+      <span className="block-text">
+        <b>{title}</b>
+        {sub && <small>{sub}</small>}
+      </span>
+      {mark}
+    </>
+  );
+  return onClick ? (
+    <button type="button" className={cls} aria-label={ariaLabel} onClick={onClick}>
+      {body}
+    </button>
+  ) : (
+    <div className={cls} aria-label={ariaLabel}>
+      {body}
+    </div>
+  );
+}
+
 /** Chips where any number can be on at once. */
 export function MultiChips<T extends string>({
   options,

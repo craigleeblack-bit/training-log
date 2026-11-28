@@ -1709,20 +1709,22 @@ button {
 }
 
 .s-head {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) 76px;
+  display: flex;
   align-items: center;
+  gap: 4px;
+  min-height: 54px;
   padding: calc(env(safe-area-inset-top) + 10px) 12px 0;
 }
 
 .s-head .mid {
   display: grid;
-  text-align: center;
+  flex: 1;
   min-width: 0;
+  padding-left: 2px;
 }
 
 .s-head .mid b {
-  font-size: 0.94rem;
+  font-size: 1rem;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1749,69 +1751,12 @@ button {
   color: var(--accent-text);
 }
 
-/* One bar per exercise. Each is a button: tap to jump to that exercise. */
-.steps {
-  display: flex;
-  gap: 5px;
-  padding: 0 20px;
-  margin-bottom: -18px;
-}
-
-.steps button {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-}
-
-.steps i {
-  display: block;
-  width: 100%;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--line);
-  overflow: hidden;
-  transition: height 0.12s;
-}
-
-.steps button.here i {
-  height: 8px;
-  border-radius: 4px;
-}
-
-.steps button:active i {
-  background: var(--edge);
-}
-
-.steps i b {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--ink);
-}
-
-.steps button.here i b {
-  background: var(--space, var(--accent));
-}
-
 .sets-wrap {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 
-.sets-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted);
-}
 
 .mini-pm {
   display: flex;
@@ -1843,10 +1788,6 @@ button {
   box-shadow: inset 4px 0 0 var(--accent);
 }
 
-.s-title .group-note {
-  font-weight: 650;
-  color: var(--accent-text);
-}
 
 .part-row {
   display: grid;
@@ -1965,11 +1906,6 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.s-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
 
 /* More than four sets: one row that scrolls sideways, so the steppers stay on screen. */
 .sets.many {
@@ -2003,39 +1939,9 @@ button {
   overflow-wrap: anywhere;
 }
 
-.s-title p {
-  margin-top: 4px;
-  font-size: 0.94rem;
-  color: var(--muted);
-}
 
-.cue {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 48px;
-  padding: 10px 12px 10px 14px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--surface-2);
-  font-size: 0.88rem;
-  text-align: left;
-}
 
-.cue span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.cue .ico {
-  width: 20px;
-  height: 20px;
-  color: var(--muted);
-}
 
 .sets {
   display: grid;
@@ -2099,13 +2005,6 @@ button {
   font-weight: 650;
 }
 
-.set-last {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
 
 .steppers {
   display: grid;
@@ -2675,10 +2574,6 @@ button {
   padding: 3px 0;
 }
 
-.s-title .last-line {
-  font-size: 0.86rem;
-  color: var(--muted);
-}
 
 .lasttime .line span:last-child {
   white-space: nowrap;
@@ -2810,146 +2705,265 @@ button {
   color: var(--muted);
 }
 
-/* ── The week, a row per day ─────────────────────────────── */
-.wk-row {
+/* ── Blocks: one thing to do, a name and one short line ──── */
+.blocks {
   display: grid;
-  grid-template-columns: 44px 1fr;
   gap: 10px;
-  align-items: start;
-  padding: 10px 12px 10px 14px;
-  border-bottom: 1px solid var(--line);
 }
 
-.wk-row:last-child {
-  border-bottom: 0;
-}
-
-.wk-row.today {
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.wk-when {
-  display: grid;
-  padding-top: 8px;
-  line-height: 1.15;
-}
-
-.wk-when b {
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.wk-when small {
-  font-size: 0.76rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.wk-row.today .wk-when b {
-  color: var(--accent-text);
-}
-
-.wk-items {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.wk-item {
+.block {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 52px;
-  padding: 6px 10px 6px 6px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  min-height: 68px;
+  padding: 14px 16px 14px 18px;
+  border: 0;
+  border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: inset 4px 0 0 var(--space, var(--edge)), var(--shadow);
   color: var(--ink);
   text-align: left;
 }
 
-.wk-item:active {
+button.block:active {
   background: var(--surface-2);
 }
 
-.wk-ico {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--space, var(--accent)) 14%, var(--surface));
-  color: var(--space, var(--accent));
-}
-
-.wk-ico .ico {
-  width: 26px;
-  height: 26px;
-}
-
-.wk-text {
+.block-text {
   display: grid;
   flex: 1;
   min-width: 0;
+  gap: 2px;
 }
 
-.wk-text b {
+.block-text b {
+  font-size: 1.06rem;
   font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.block-text small {
+  font-size: 0.86rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wk-text small {
-  font-size: 0.8rem;
+.block.done .block-text b {
   color: var(--muted);
 }
 
-.wk-item.done .wk-text small {
-  color: var(--ok-ink);
-  font-weight: 600;
+.block.now {
+  box-shadow: inset 4px 0 0 var(--space, var(--accent)), inset 0 0 0 2px var(--space, var(--accent));
 }
 
-.wk-item.done,
-.wk-item.skipped {
-  background: var(--surface-2);
-}
-
-.wk-item.skipped .wk-ico {
-  opacity: 0.5;
-}
-
-.wk-mark {
+.block-mark {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex: none;
   border-radius: 50%;
-}
-
-.wk-mark .ico {
-  width: 16px;
-  height: 16px;
-}
-
-.wk-mark.done {
   background: var(--ok);
   color: #fff;
 }
 
-.wk-mark.skipped {
-  background: var(--edge);
-  color: var(--surface);
+.block-mark .ico {
+  width: 17px;
+  height: 17px;
 }
 
-.wk-rest {
-  padding-top: 8px;
-  font-size: 0.88rem;
+.pips {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.pips i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.pips i.on {
+  background: var(--space, var(--accent));
+}
+
+/* Exercises done in turn sit together in one outline. */
+.block-group {
+  display: grid;
+  gap: 2px;
+}
+
+.block-group .block:not(:first-child) {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+.block-group .block:not(:last-child) {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.block.rest-day {
+  justify-content: center;
+  min-height: 120px;
+  box-shadow: none;
+  background: transparent;
+  border: 1.5px dashed var(--line);
+  font-size: 1rem;
   color: var(--faint);
+}
+
+/* ── The week: a strip of days, and the chosen day's blocks ─ */
+.day-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 18px;
+}
+
+.day-strip button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 0 7px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--muted);
+}
+
+.day-strip .d {
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.day-strip .n {
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.day-strip .m {
+  display: grid;
+  place-items: center;
+  height: 12px;
+}
+
+.day-strip .m.planned::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--edge);
+}
+
+.day-strip .m .ico {
+  width: 12px;
+  height: 12px;
+  color: var(--ok);
+  stroke-width: 3;
+}
+
+.day-strip button.today {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.day-strip button.today .d {
+  color: var(--accent-text);
+}
+
+.day-strip button.on {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.day-strip button.on .n {
+  color: var(--bg);
+}
+
+.day-strip button.on .m.planned::before {
+  background: var(--bg);
+}
+
+.day-strip button.on .m .ico {
+  color: var(--bg);
+}
+
+.day-routine {
+  display: grid;
+  gap: 10px;
+}
+
+.day-routine + .day-routine {
+  margin-top: 26px;
+}
+
+.dr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+
+.dr-head > .ico {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--space, var(--accent));
+}
+
+.dr-head b {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.12rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dr-head .icon-btn {
+  color: var(--muted);
+}
+
+.day-routine > .btn {
+  margin-top: 4px;
+}
+
+/* A long day keeps its Start in reach, just above the tab bar. */
+.day-routine > .btn.primary {
+  position: sticky;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  z-index: 2;
+}
+
+/* A rest under way, while the session's blocks are showing. */
+.rest-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--space, var(--accent)) 16%, var(--surface));
+}
+
+.rest-bar span {
+  flex: 1;
+  font-weight: 650;
+}
+
+.rest-bar b {
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Equipment: what a space cannot do ───────────────────── */
