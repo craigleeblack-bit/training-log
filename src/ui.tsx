@@ -496,6 +496,12 @@ export const Icon = {
       <path d="M6 14.5l6-6 6 6" />
     </svg>
   ),
+  /** Six dots: a handle to drag something by. */
+  grip: (
+    <svg viewBox="0 0 24 24" {...bold}>
+      <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
+    </svg>
+  ),
   swap: (
     <svg viewBox="0 0 24 24" {...stroke}>
       <path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4" />

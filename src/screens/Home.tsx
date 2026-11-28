@@ -5,7 +5,7 @@ import { db, type Exercise, type SetEntry, type Space } from '../db/schema';
 import { lastRoutineSession, scheduleWeek, type WeekCell } from '../db/queries';
 import { addDays, niceDate, parseIso, relativeDay, weekRangeLabel, weekStart, weekdayIndex } from '../lib/dates';
 import { activityLabel, activityOf, spaceIconOf, type ActivityKey } from '../lib/activities';
-import { setCount, setsDone } from '../lib/logging';
+import { runsOf, setCount, setsDone } from '../lib/logging';
 import { startWorkout } from '../actions';
 import { useToday } from '../useToday';
 import { ActivityIcon, SpaceIcon } from '../icons';
@@ -189,18 +189,28 @@ function DayRoutine({
 
       <div className="blocks">
         {items.length ? (
-          items.map((item) => {
-            const entries = workout ? sets.filter((s) => s.itemId === item.id) : [];
-            const of = setCount(item, entries);
-            const done = setsDone(item, entries);
-            return (
-              <Block
-                key={item.id}
-                title={exercises.get(item.exerciseId)!.name}
-                sub={itemSummary(item) || undefined}
-                done={workout ? (bySets ? done >= of && done > 0 : checked.has(item.id)) : false}
-                progress={workout && bySets ? { done, of } : undefined}
-              />
+          runsOf(items).map((run) => {
+            const blocks = run.map((item) => {
+              const entries = workout ? sets.filter((s) => s.itemId === item.id) : [];
+              const of = setCount(item, entries);
+              const done = setsDone(item, entries);
+              return (
+                <Block
+                  key={item.id}
+                  title={exercises.get(item.exerciseId)!.name}
+                  sub={itemSummary(item) || undefined}
+                  done={workout ? (bySets ? done >= of && done > 0 : checked.has(item.id)) : false}
+                  progress={workout && bySets ? { done, of } : undefined}
+                />
+              );
+            });
+            // A superset or circuit sits together, as it does in the session.
+            return run.length > 1 ? (
+              <div key={run[0].id} className="block-group">
+                {blocks}
+              </div>
+            ) : (
+              blocks[0]
             );
           })
         ) : (

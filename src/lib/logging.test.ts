@@ -5,7 +5,10 @@ import { complexTotals, describeParts, exerciseHistory, lastTime, loadCount, set
 import { workoutLines } from './claude';
 import {
   addSet,
+  groupItems,
+  insertItemAt,
   linkAbove,
+  moveItemTo,
   moveItem,
   normaliseGroups,
   parseLadder,
@@ -14,6 +17,7 @@ import {
   saveSet,
   setsDone,
   swapItem,
+  ungroupItems,
 } from './logging';
 
 const press: Exercise = { id: 'press', name: 'Press', measure: 'weight_reps', links: [] };
@@ -103,6 +107,50 @@ describe('workout structures', () => {
     expect(groupsOf(three)).toEqual(['g0', 'g0', 'g0']);
     expect(groupsOf(linkAbove(three, 1, false))).toEqual([undefined, 'g1', 'g1']);
     expect(groupsOf(linkAbove(linked, 1, false))).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('makes chosen rows one superset, pulling scattered ones together', () => {
+    const ids = (list: RoutineItem[]) => list.map((i) => i.id);
+    const next = groupItems(items([undefined, undefined, undefined]), ['i0', 'i1']);
+    expect(groupsOf(next)).toEqual(['g0', 'g0', undefined]);
+    const scattered = groupItems(items([undefined, undefined, undefined, undefined]), ['i1', 'i3']);
+    expect(ids(scattered)).toEqual(['i0', 'i1', 'i3', 'i2']);
+    expect(groupsOf(scattered)).toEqual([undefined, 'g1', 'g1', undefined]);
+    // One row alone is not a superset.
+    expect(groupItems(items([undefined, undefined]), ['i1'])).toEqual(items([undefined, undefined]));
+  });
+
+  it('joins a row onto an existing superset, bringing the whole superset', () => {
+    const list = items(['a', 'a', undefined, undefined]);
+    const next = groupItems(list, ['i1', 'i3']);
+    expect(next.map((i) => i.id)).toEqual(['i0', 'i1', 'i3', 'i2']);
+    expect(groupsOf(next)).toEqual(['g0', 'g0', 'g0', undefined]);
+  });
+
+  it('moves a row to a gap, joining a superset it lands inside', () => {
+    const ids = (list: RoutineItem[]) => list.map((i) => i.id);
+    const plain = items([undefined, undefined, undefined]);
+    expect(ids(moveItemTo(plain, 'i0', 3))).toEqual(['i1', 'i2', 'i0']);
+    expect(ids(moveItemTo(plain, 'i2', 0))).toEqual(['i2', 'i0', 'i1']);
+    expect(ids(moveItemTo(plain, 'i1', 1))).toEqual(['i0', 'i1', 'i2']);
+    // Into the middle of a superset: it joins.
+    const into = moveItemTo(items([undefined, 'a', 'a']), 'i0', 2);
+    expect(ids(into)).toEqual(['i1', 'i0', 'i2']);
+    expect(groupsOf(into)).toEqual(['g0', 'g0', 'g0']);
+    // Reordered within its own superset, it stays in it; dragged away, it leaves.
+    expect(groupsOf(moveItemTo(items(['a', 'a', undefined]), 'i1', 0))).toEqual(['g0', 'g0', undefined]);
+    expect(groupsOf(moveItemTo(items(['a', 'a', 'a', undefined]), 'i0', 4))).toEqual(['g0', 'g0', undefined, undefined]);
+    // A new exercise dropped between two of a superset joins it too.
+    const added = insertItemAt(items(['a', 'a']), { id: 'new', exerciseId: 'press' }, 1);
+    expect(groupsOf(added)).toEqual(['g0', 'g0', 'g0']);
+  });
+
+  it('splits rows out, keeping the rest of the group together', () => {
+    const circuit = items(['a', 'a', 'a', undefined]);
+    const split = ungroupItems(circuit, ['i1']);
+    expect(split.map((i) => i.id)).toEqual(['i0', 'i2', 'i1', 'i3']);
+    expect(groupsOf(split)).toEqual(['g0', 'g0', undefined, undefined]);
+    expect(groupsOf(ungroupItems(items(['a', 'a']), ['i0']))).toEqual([undefined, undefined]);
   });
 
   it('reads a ladder, and nothing else as one', () => {

@@ -17,6 +17,8 @@ import { Library, NoteScreen } from './screens/Library';
 import Settings from './screens/Settings';
 import History from './screens/History';
 import Calendar from './screens/Calendar';
+import PlanWorkspace from './screens/PlanWorkspace';
+import { useWide } from './useWide';
 
 // Screens with heavy libraries of their own load when first opened, so the app starts fast.
 const Passes = lazy(() => import('./screens/Passes'));
@@ -92,6 +94,33 @@ function TabBar() {
   );
 }
 
+/** On a wide window Plan and its routines open as one workspace; on a phone, as pages. */
+function AppRoutes() {
+  const wide = useWide();
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/space/:id" element={<SpaceScreen />} />
+      <Route path="/routine/:id" element={wide ? <PlanWorkspace /> : <RoutineEdit />} />
+      <Route path="/plan" element={wide ? <PlanWorkspace /> : <PlanScreen />} />
+      <Route path="/programme/:id" element={<ProgrammeScreen />} />
+      <Route path="/workout/:id" element={<WorkoutScreen />} />
+      <Route path="/exercises" element={<ExerciseList />} />
+      <Route path="/exercise/:id" element={<ExerciseDetail />} />
+      <Route path="/history" element={<History />} />
+      <Route path="/calendar" element={<Calendar />} />
+      <Route path="/progress" element={<Progress />} />
+      <Route path="/timer" element={<TimerScreen />} />
+      <Route path="/library" element={<Library />} />
+      <Route path="/note/:id" element={<NoteScreen />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="/pass" element={<Passes />} />
+      <Route path="/track/:id" element={<TrackScreen />} />
+      <Route path="*" element={<Home />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <HashRouter>
@@ -101,26 +130,7 @@ export default function App() {
           <ScrollReset />
           <div className="app">
             <Suspense fallback={null}>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/space/:id" element={<SpaceScreen />} />
-              <Route path="/routine/:id" element={<RoutineEdit />} />
-              <Route path="/plan" element={<PlanScreen />} />
-              <Route path="/programme/:id" element={<ProgrammeScreen />} />
-              <Route path="/workout/:id" element={<WorkoutScreen />} />
-              <Route path="/exercises" element={<ExerciseList />} />
-              <Route path="/exercise/:id" element={<ExerciseDetail />} />
-              <Route path="/history" element={<History />} />
-              <Route path="/calendar" element={<Calendar />} />
-              <Route path="/progress" element={<Progress />} />
-              <Route path="/timer" element={<TimerScreen />} />
-              <Route path="/library" element={<Library />} />
-              <Route path="/note/:id" element={<NoteScreen />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/pass" element={<Passes />} />
-              <Route path="/track/:id" element={<TrackScreen />} />
-              <Route path="*" element={<Home />} />
-            </Routes>
+            <AppRoutes />
             </Suspense>
           </div>
           <TimerPill />

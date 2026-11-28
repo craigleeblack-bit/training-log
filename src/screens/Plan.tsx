@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Routine, type Space } from '../db/schema';
 import { programmeProgress } from '../db/queries';
@@ -148,8 +148,15 @@ function PlanLinks() {
 type Making = { kind: 'routine'; day?: number } | { kind: 'programme' };
 
 /** The Plan tab: the week that repeats, then the routines, spaces and programmes behind it. */
-export default function PlanScreen() {
+export default function PlanScreen({
+  embedded,
+}: {
+  /** The left column of the wide workspace, beside the routine being edited. */
+  embedded?: boolean;
+} = {}) {
   const nav = useNavigate();
+  // In the workspace, the routine open beside this list.
+  const { id: openId } = useParams();
   const { toast } = useFeedback();
   const [onDay, setOnDay] = useState<{ routineId: string; day: number }>();
   const [adding, setAdding] = useState<number>();
@@ -192,8 +199,8 @@ export default function PlanScreen() {
     else nav(`/routine/${await newRoutine(spaceId, m.day !== undefined ? [m.day] : undefined)}`);
   };
 
-  return (
-    <Page title="Plan" large>
+  const body = (
+    <>
       <SectionTitle>Your week</SectionTitle>
       <p className="sub plan-lede">What the Week screen shows, every week. Tap a routine to move it, or + to add one.</p>
       <div className="card flush plan-week">
@@ -234,7 +241,13 @@ export default function PlanScreen() {
         {sortedRoutines.map((r) => {
           const space = spaceById.get(r.spaceId);
           return (
-            <Link key={r.id} to={`/routine/${r.id}`} className="row" style={{ ['--space' as string]: space?.color }}>
+            <Link
+              key={r.id}
+              to={`/routine/${r.id}`}
+              className={`row${embedded && r.id === openId ? ' selected' : ''}`}
+              aria-current={embedded && r.id === openId ? 'page' : undefined}
+              style={{ ['--space' as string]: space?.color }}
+            >
               <span className="space-ico">{icon(r)}</span>
               <div className="grow">
                 <div className="title">{r.name}</div>
@@ -304,6 +317,19 @@ export default function PlanScreen() {
           onClose={() => setMaking(undefined)}
         />
       )}
+    </>
+  );
+
+  return embedded ? (
+    <aside className="ws-col ws-plan" aria-label="Plan">
+      <div className="ws-head">
+        <h2>Plan</h2>
+      </div>
+      <div className="content">{body}</div>
+    </aside>
+  ) : (
+    <Page title="Plan" large>
+      {body}
     </Page>
   );
 }

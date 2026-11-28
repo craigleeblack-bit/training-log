@@ -69,6 +69,17 @@ export function normaliseGroups(items: RoutineItem[]): RoutineItem[] {
   return out;
 }
 
+/** The list in runs: a superset or circuit together, every other exercise on its own. */
+export function runsOf<T extends Pick<RoutineItem, 'group'>>(items: T[]): T[][] {
+  const runs: T[][] = [];
+  for (const i of items) {
+    const prev = runs[runs.length - 1];
+    if (prev && i.group && prev[0].group === i.group) prev.push(i);
+    else runs.push([i]);
+  }
+  return runs;
+}
+
 /** Make an exercise a superset with the one above it, or split it off again. */
 export function linkAbove(items: RoutineItem[], index: number, on: boolean): RoutineItem[] {
   if (index <= 0 || index >= items.length) return items;
@@ -82,6 +93,63 @@ export function linkAbove(items: RoutineItem[], index: number, on: boolean): Rou
   } else {
     const old = out[index].group;
     for (let k = index; k < out.length && out[k].group === old; k++) out[k].group = `split${index}`;
+  }
+  return normaliseGroups(out);
+}
+
+/**
+ * Put an exercise into the list at a gap (0 = before the first). It keeps its superset if it
+ * lands beside the others in it; dropped between two of another superset, it joins that one.
+ */
+export function insertItemAt(items: RoutineItem[], item: RoutineItem, at: number): RoutineItem[] {
+  const rest = items.filter((i) => i.id !== item.id);
+  const k = Math.max(0, Math.min(at, rest.length));
+  const above = rest[k - 1];
+  const below = rest[k];
+  const own = item.group && (above?.group === item.group || below?.group === item.group) ? item.group : undefined;
+  const between = above?.group && above.group === below?.group ? above.group : undefined;
+  const { group: _old, ...plain } = item;
+  const placed: RoutineItem = own || between ? { ...plain, group: own || between } : plain;
+  return normaliseGroups([...rest.slice(0, k), placed, ...rest.slice(k)]);
+}
+
+/** Move an exercise to a gap in the list as it stands (0 = before the first, n = after the last). */
+export function moveItemTo(items: RoutineItem[], id: string, at: number): RoutineItem[] {
+  const from = items.findIndex((i) => i.id === id);
+  if (from < 0) return items;
+  return insertItemAt(items, items[from], at > from ? at - 1 : at);
+}
+
+/**
+ * Make the chosen exercises one superset (or circuit). Any group a chosen exercise is already
+ * in comes along whole, and the lot moves together to where the first of them was.
+ */
+export function groupItems(items: RoutineItem[], ids: string[]): RoutineItem[] {
+  const chosen = new Set(ids);
+  const groups = new Set(items.filter((i) => chosen.has(i.id) && i.group).map((i) => i.group));
+  const joining = items.filter((i) => chosen.has(i.id) || (!!i.group && groups.has(i.group)));
+  if (joining.length < 2) return items;
+  const at = items.indexOf(joining[0]);
+  const rest = items.filter((i) => !joining.includes(i));
+  const before = rest.filter((i) => items.indexOf(i) < at);
+  const after = rest.filter((i) => items.indexOf(i) > at);
+  return normaliseGroups([...before, ...joining.map((i) => ({ ...i, group: 'joined' })), ...after]);
+}
+
+/**
+ * Take the chosen exercises out of their supersets. Each goes just after the group it left,
+ * so the others in it stay together.
+ */
+export function ungroupItems(items: RoutineItem[], ids: string[]): RoutineItem[] {
+  const chosen = new Set(ids);
+  const out: RoutineItem[] = [];
+  for (let k = 0; k < items.length; ) {
+    const g = items[k].group;
+    let end = k + 1;
+    while (g && end < items.length && items[end].group === g) end++;
+    const run = items.slice(k, end);
+    out.push(...run.filter((i) => !chosen.has(i.id)), ...run.filter((i) => chosen.has(i.id)).map(({ group: _g, ...i }) => i));
+    k = end;
   }
   return normaliseGroups(out);
 }

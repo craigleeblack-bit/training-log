@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, MEASURE_LABEL, uid, type Exercise, type Measure, type Routine, type RoutineItem } from '../db/schema';
 import { CATEGORIES, CATEGORY_LABEL, categoryOf, guessCategory, type ExerciseCategory } from '../lib/categories';
 import { linkAbove, normaliseGroups, parseLadder } from '../lib/logging';
 import { routineCopy } from '../lib/planning';
 import { kitList, missingIn } from '../lib/equipment';
-import { Chips, Field, IconPicker, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
+import { Chips, Field, Icon, IconPicker, Page, SectionTitle, Sheet, parseNumber, useFeedback } from '../ui';
 import { guessActivity, knownActivity } from '../lib/activities';
 import { ACTIVITY_OPTIONS } from '../icons';
 import { repeatLabel } from '../lib/dates';
+import RoutineTable from './RoutineTable';
 
 const WEEKDAY_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const WEEKDAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -25,18 +26,25 @@ export function itemSummary(item: RoutineItem): string {
   return parts.join(' · ');
 }
 
-/** Pick an existing exercise or create one on the spot. */
-export function ExercisePicker({
+/** What a dragged exercise carries, so the routine table can tell it from a dragged row. */
+export const EXERCISE_DRAG = 'application/x-exercise-id';
+
+/**
+ * The exercise list with search, sections and the space's kit filter. Used in the phone's
+ * picker sheet and, on a wide window, as the library column beside a routine.
+ */
+export function ExerciseBrowser({
   onPick,
-  onClose,
-  title = 'Add exercise',
   spaceId,
+  autoFocus,
+  panel,
 }: {
   onPick: (e: Exercise) => void;
-  onClose: () => void;
-  title?: string;
   /** The space it is for: exercises needing kit it does not have are held back. */
   spaceId?: string;
+  autoFocus?: boolean;
+  /** As a library column: rows can be dragged into the routine, and link to their details. */
+  panel?: boolean;
 }) {
   const exercises = useLiveQuery(() => db.exercises.orderBy('name').toArray(), []) ?? [];
   const space = useLiveQuery(() => (spaceId ? db.spaces.get(spaceId) : undefined), [spaceId]);
@@ -61,11 +69,18 @@ export function ExercisePicker({
     const e: Exercise = { id: uid(), name, measure, category: section ?? guessCategory(name), links: [] };
     await db.exercises.add(e);
     onPick(e);
+    setQ('');
   };
 
   return (
-    <Sheet title={title} onClose={onClose}>
-      <input className="input" autoFocus placeholder="Search or type a new name" value={q} onChange={(e) => setQ(e.target.value)} />
+    <>
+      <input
+        className="input"
+        autoFocus={autoFocus}
+        placeholder="Search or type a new name"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
       {!needle && sections.length > 1 && (
         <Chips className="scroll" options={sections} value={section} onChange={setSection} label={(c) => CATEGORY_LABEL[c]} />
       )}
@@ -93,16 +108,37 @@ export function ExercisePicker({
       <div className="card flush">
         {matches.map((e) => {
           const missing = missingIn(e, space);
-          return (
-            <button key={e.id} className={`row${missing.length ? ' unavailable' : ''}`} onClick={() => onPick(e)}>
-              <div className="grow">
-                <div className="title">{e.name}</div>
-                <div className="sub">
-                  {missing.length
-                    ? `Needs ${kitList(missing).toLowerCase()}`
-                    : [CATEGORY_LABEL[categoryOf(e)], MEASURE_LABEL[e.measure]].join(' · ')}
-                </div>
+          const text = (
+            <div className="grow">
+              <div className="title">{e.name}</div>
+              <div className="sub">
+                {missing.length
+                  ? `Needs ${kitList(missing).toLowerCase()}`
+                  : [CATEGORY_LABEL[categoryOf(e)], MEASURE_LABEL[e.measure]].join(' · ')}
               </div>
+            </div>
+          );
+          return panel ? (
+            <div
+              key={e.id}
+              className={`row tools lib-row${missing.length ? ' unavailable' : ''}`}
+              draggable
+              title="Drag into the routine, or + to add it at the end"
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData(EXERCISE_DRAG, e.id);
+                ev.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
+              <Link to={`/exercise/${e.id}`} className="grow" draggable={false}>
+                {text}
+              </Link>
+              <button className="icon-btn sm" aria-label={`Add ${e.name} to the routine`} onClick={() => onPick(e)}>
+                {Icon.plus}
+              </button>
+            </div>
+          ) : (
+            <button key={e.id} className={`row${missing.length ? ' unavailable' : ''}`} onClick={() => onPick(e)}>
+              {text}
             </button>
           );
         })}
@@ -110,6 +146,26 @@ export function ExercisePicker({
           <div className="empty">{heldBack ? `No matches with the kit in ${space?.name}.` : 'No matching exercises.'}</div>
         )}
       </div>
+    </>
+  );
+}
+
+/** Pick an existing exercise or create one on the spot. */
+export function ExercisePicker({
+  onPick,
+  onClose,
+  title = 'Add exercise',
+  spaceId,
+}: {
+  onPick: (e: Exercise) => void;
+  onClose: () => void;
+  title?: string;
+  /** The space it is for: exercises needing kit it does not have are held back. */
+  spaceId?: string;
+}) {
+  return (
+    <Sheet title={title} onClose={onClose}>
+      <ExerciseBrowser onPick={onPick} spaceId={spaceId} autoFocus />
     </Sheet>
   );
 }
@@ -204,7 +260,15 @@ function ItemForm({
   );
 }
 
-export default function RoutineEdit() {
+export default function RoutineEdit({
+  embedded,
+  onAddExercises,
+}: {
+  /** In the wide Plan workspace: no page header, settings in a grid, exercises as a table. */
+  embedded?: boolean;
+  /** Opens the exercise library, when it is not already showing beside the editor. */
+  onAddExercises?: () => void;
+} = {}) {
   const { id = '' } = useParams();
   const nav = useNavigate();
   const { confirm } = useFeedback();
@@ -252,95 +316,160 @@ export default function RoutineEdit() {
     });
     if (ok) {
       await db.routines.delete(id);
-      nav(-1);
+      if (embedded) nav('/plan', { replace: true });
+      else nav(-1);
     }
+  };
+
+  const duplicate = async () => {
+    const copy = routineCopy(routine, (await db.routines.where('spaceId').equals(routine.spaceId).count()) + 1);
+    await db.routines.add(copy);
+    nav(`/routine/${copy.id}`, { replace: true });
   };
 
   const currentIndex = routine.items.findIndex((i) => i.id === editing);
   const current = routine.items[currentIndex];
 
+  const nameField = (
+    <Field label="Name">
+      <input defaultValue={routine.name} onBlur={(e) => e.target.value.trim() && patch({ name: e.target.value.trim() })} />
+    </Field>
+  );
+  const spaceField = (
+    <Field label="Space">
+      <select value={routine.spaceId} onChange={(e) => patch({ spaceId: e.target.value })}>
+        {spaces.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+  const kitWarning = impossible > 0 && (
+    <p className="kit-warning">
+      {impossible} exercise{impossible === 1 ? ' needs' : 's need'} kit {space?.name} does not have. They are marked below.
+    </p>
+  );
+  const activityField = (
+    <div style={{ ['--space' as string]: spaces.find((s) => s.id === routine.spaceId)?.color, display: 'contents' }}>
+      <IconPicker
+        label="Activity"
+        options={ACTIVITY_OPTIONS}
+        value={knownActivity(routine.activity) ?? guessActivity(routine.name, spaces.find((s) => s.id === routine.spaceId)?.name)}
+        onChange={(k) => patch({ activity: k })}
+        hint={routine.activity ? 'Shown on the Week screen' : 'Guessed from the name'}
+      />
+    </div>
+  );
+  const daysField = (
+    <div className="field">
+      <span>Repeats on</span>
+      <div className="chips days" role="group" aria-label="Repeats on">
+        {WEEKDAY_SHORT.map((label, d) => {
+          const on = !!routine.days?.includes(d);
+          return (
+            <button
+              key={d}
+              type="button"
+              className={`chip${on ? ' on' : ''}`}
+              aria-pressed={on}
+              aria-label={WEEKDAY_LONG[d]}
+              onClick={() => {
+                const next = on ? (routine.days ?? []).filter((x) => x !== d) : [...(routine.days ?? []), d].sort((a, b) => a - b);
+                void patch({ days: next.length ? next : undefined });
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <span className="sub" style={{ fontWeight: 400 }}>
+        {routine.days?.length
+          ? `On the Week screen every week: ${repeatLabel(routine.days)}.`
+          : 'Pick the days it should show on the Week screen, every week.'}
+      </span>
+    </div>
+  );
+  const styleField = (
+    <div className="field">
+      <span>Logging style</span>
+      <Chips
+        options={['sets', 'session'] as const}
+        value={routine.logStyle}
+        onChange={(v) => v && patch({ logStyle: v })}
+        label={(v) => (v === 'sets' ? 'Set by set' : 'Tick-off session')}
+      />
+      <span className="sub" style={{ fontWeight: 400 }}>
+        {routine.logStyle === 'sets'
+          ? 'Log reps and weight for every set, with last time shown.'
+          : 'Tick exercises off, then record minutes, effort and how the back felt.'}
+      </span>
+    </div>
+  );
+  const descField = (
+    <Field label="Description / prescription">
+      <textarea
+        defaultValue={routine.description ?? ''}
+        placeholder="Shown at the top of the session"
+        onBlur={(e) => patch({ description: e.target.value.trim() || undefined })}
+      />
+    </Field>
+  );
+
+  if (embedded) {
+    return (
+      <section className="ws-col ws-editor" style={{ ['--space' as string]: space?.color }}>
+        <div className="ws-head">
+          <input
+            className="ws-title"
+            aria-label="Routine name"
+            defaultValue={routine.name}
+            onBlur={(e) => e.target.value.trim() && patch({ name: e.target.value.trim() })}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          />
+          {onAddExercises && (
+            <button className="btn small primary" onClick={onAddExercises}>
+              {Icon.plus}
+              Add exercises
+            </button>
+          )}
+          <button className="btn small ghost" onClick={duplicate}>
+            Duplicate
+          </button>
+          <button className="btn small ghost danger" onClick={remove}>
+            Delete
+          </button>
+        </div>
+        <div className="ws-settings">
+          {spaceField}
+          {activityField}
+          {daysField}
+          {styleField}
+          <div className="span-2">{descField}</div>
+        </div>
+        {kitWarning}
+        <SectionTitle>Exercises</SectionTitle>
+        <RoutineTable routine={routine} exercises={exercises} space={space} />
+      </section>
+    );
+  }
+
   return (
     <Page title="Edit routine" back>
-      <Field label="Name">
-        <input defaultValue={routine.name} onBlur={(e) => e.target.value.trim() && patch({ name: e.target.value.trim() })} />
-      </Field>
+      {nameField}
 
-      <Field label="Space">
-        <select value={routine.spaceId} onChange={(e) => patch({ spaceId: e.target.value })}>
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {impossible > 0 && (
-        <p className="kit-warning">
-          {impossible} exercise{impossible === 1 ? ' needs' : 's need'} kit {space?.name} does not have. They are marked below.
-        </p>
-      )}
+      {spaceField}
+      {kitWarning}
 
-      <div style={{ ['--space' as string]: spaces.find((s) => s.id === routine.spaceId)?.color, display: 'contents' }}>
-        <IconPicker
-          label="Activity"
-          options={ACTIVITY_OPTIONS}
-          value={knownActivity(routine.activity) ?? guessActivity(routine.name, spaces.find((s) => s.id === routine.spaceId)?.name)}
-          onChange={(k) => patch({ activity: k })}
-          hint={routine.activity ? 'Shown on the Week screen' : 'Guessed from the name'}
-        />
-      </div>
+      {activityField}
 
-      <div className="field">
-        <span>Repeats on</span>
-        <div className="chips days" role="group" aria-label="Repeats on">
-          {WEEKDAY_SHORT.map((label, d) => {
-            const on = !!routine.days?.includes(d);
-            return (
-              <button
-                key={d}
-                type="button"
-                className={`chip${on ? ' on' : ''}`}
-                aria-pressed={on}
-                aria-label={WEEKDAY_LONG[d]}
-                onClick={() => {
-                  const next = on ? (routine.days ?? []).filter((x) => x !== d) : [...(routine.days ?? []), d].sort((a, b) => a - b);
-                  void patch({ days: next.length ? next : undefined });
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-        <span className="sub" style={{ fontWeight: 400 }}>
-          {routine.days?.length
-            ? `On the Week screen every week: ${repeatLabel(routine.days)}.`
-            : 'Pick the days it should show on the Week screen, every week.'}
-        </span>
-      </div>
+      {daysField}
 
-      <div className="field">
-        <span>Logging style</span>
-        <Chips
-          options={['sets', 'session'] as const}
-          value={routine.logStyle}
-          onChange={(v) => v && patch({ logStyle: v })}
-          label={(v) => (v === 'sets' ? 'Set by set' : 'Tick-off session')}
-        />
-        <span className="sub" style={{ fontWeight: 400 }}>
-          {routine.logStyle === 'sets'
-            ? 'Log reps and weight for every set, with last time shown.'
-            : 'Tick exercises off, then record minutes, effort and how the back felt.'}
-        </span>
-      </div>
+      {styleField}
 
-      <Field label="Description / prescription">
-        <textarea
-          defaultValue={routine.description ?? ''}
-          placeholder="Shown at the top of the session"
-          onBlur={(e) => patch({ description: e.target.value.trim() || undefined })}
-        />
-      </Field>
+      {descField}
 
       <SectionTitle action={<button onClick={() => setPicking(true)}>+ Add</button>}>Exercises</SectionTitle>
       <div className="card flush">
@@ -368,14 +497,7 @@ export default function RoutineEdit() {
         {!routine.items.length && <div className="empty">No exercises yet.</div>}
       </div>
 
-      <button
-        className="btn"
-        onClick={async () => {
-          const copy = routineCopy(routine, (await db.routines.where('spaceId').equals(routine.spaceId).count()) + 1);
-          await db.routines.add(copy);
-          nav(`/routine/${copy.id}`, { replace: true });
-        }}
-      >
+      <button className="btn" onClick={duplicate}>
         Duplicate this routine
       </button>
       <button className="btn ghost danger" onClick={remove}>

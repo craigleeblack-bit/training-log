@@ -17,6 +17,7 @@ import {
   moveItem,
   removeItem,
   removeSet,
+  runsOf,
   saveSet,
   setCount,
   setsDone,
@@ -631,12 +632,7 @@ export default function SessionFlow({
   const allDone = items.length > 0 && !nextItem;
 
   /** Items in runs, so a superset or circuit can sit in one outline. */
-  const runs: RoutineItem[][] = [];
-  for (const i of items) {
-    const prev = runs[runs.length - 1];
-    if (prev && i.group && prev[0].group === i.group) prev.push(i);
-    else runs.push([i]);
-  }
+  const runs = runsOf(items);
 
   const blockFor = (i: RoutineItem) => {
     const entries = entriesFor(i);
