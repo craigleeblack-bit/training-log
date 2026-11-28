@@ -40,15 +40,6 @@ Nothing half-built. 128 tests pass and the build is clean.
 - Pace for distance exercises: it needs a time per set, which the distance
   logger does not ask for yet.
 
-## Open question for the owner
-
-`CLAUDE.md` asks for a new database version whenever the shape of the data
-changes. Several recent fields were added without one because they are
-optional and not indexed, so old data needs no upgrade: `Routine.days`,
-`Space.equipment`, `Exercise.needs`, `Workout.scheduleDay`,
-`Workout.autoClosed`, `SetEntry.at`, `Track.avgHr` and `Track.maxHr`. Decide
-whether that is acceptable or whether such fields should also get a version.
-
 ## Next
 
 - Try the checklist on the phone: post-its, an exercise and back, Finish

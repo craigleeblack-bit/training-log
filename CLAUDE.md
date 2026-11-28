@@ -30,6 +30,9 @@ briefly in plain English, and keep the code simple and well commented.
   devices, so:
   - to change the shape of the data, add a new `this.version(n+1)` with an
     `.upgrade()` that brings old data forward. Never edit an earlier version;
+  - a new field that is optional and not indexed needs no new version, since
+    old records simply lack it (decided 28 November 2026). Mark it optional
+    (`?`) and make the code cope when it is missing;
   - give each new version a test that opens a database at the old version
     and upgrades it, as `src/db/v2.test.ts` and `src/db/v3.test.ts` do;
   - a brand-new database skips upgrades, so anything an upgrade adds as
